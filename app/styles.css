@@ -678,3 +678,88 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* VM Backup pre-check */
+.backup-hostname-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.backup-hostname-toolbar .counter {
+  margin: 0;
+}
+
+.backup-precheck-area {
+  margin: 18px 0 22px;
+}
+
+.backup-precheck-banner {
+  border: 1px solid #b8cce0;
+  border-radius: 10px;
+  background: #f4f8fc;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.backup-precheck-banner.success {
+  border-color: #78c697;
+  background: #edf9f1;
+}
+
+.backup-precheck-banner.warning {
+  border-color: #e2b15b;
+  background: #fff8e8;
+}
+
+.backup-precheck-banner.error {
+  border-color: #e88989;
+  background: #fff0f0;
+}
+
+.backup-precheck-banner h3 {
+  margin: 0 0 6px;
+}
+
+.backup-precheck-table td,
+.backup-precheck-table th {
+  vertical-align: top;
+}
+
+.backup-action-fields {
+  border: 1px solid #d6e0ea;
+  border-radius: 10px;
+  padding: 18px;
+  margin: 18px 0 0;
+}
+
+.backup-action-fields legend {
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.backup-action-fields:disabled {
+  opacity: 0.62;
+  background: #f8fafc;
+}
+
+.estimate-note {
+  display: block;
+  color: #5a6b7c;
+  margin-top: 4px;
+  font-size: 0.86rem;
+}
+
+.current-job-inprogress {
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .backup-hostname-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure VM Operations Portal</title>
-  <link rel="stylesheet" href="/styles.css?v=20260808-vm-backup-1">
+  <link rel="stylesheet" href="/styles.css?v=20260808-backup-precheck-1">
 </head>
 <body>
   <header class="topbar">
@@ -322,7 +322,7 @@
                 id="snapshotChangeNumber"
                 type="text"
                 maxlength="40"
-                pattern="[A-Za-z0-9._-]{1,40}"
+                pattern="[A-Za-z0-9._\-]{1,40}"
                 placeholder="CHG0012345"
                 required>
               <div class="field-help">
@@ -414,52 +414,72 @@
             <label for="backupHostnames">VM hostnames *</label>
             <textarea
               id="backupHostnames"
-              rows="8"
+              rows="6"
               maxlength="5000"
-              placeholder="WINVM001&#10;WINVM002&#10;WINVM003"
+              placeholder="WINVM001&#10;WINVM002"
               required></textarea>
             <div class="field-help">
               Enter one hostname per line, or separate values with commas or semicolons.
               Maximum 5 unique hostnames per backup request.
             </div>
-            <div id="backupHostnameCount" class="counter">0 / 5</div>
+            <div class="backup-hostname-toolbar">
+              <div id="backupHostnameCount" class="counter">0 / 5</div>
+              <button
+                id="backupCheckButton"
+                type="button"
+                class="secondary"
+                disabled>
+                Verifying identity…
+              </button>
+            </div>
             <div class="field-help quota-help">
-              Backup quota: maximum 3 requests per authenticated user in any rolling 24-hour period.
+              First check Azure Backup status. Backup Now is enabled only when every entered
+              VM is already protected and has no backup job currently running.
             </div>
           </div>
 
-          <div class="grid">
-            <div class="field">
-              <label for="backupChangeNumber">Change / incident number *</label>
-              <input
-                id="backupChangeNumber"
-                type="text"
-                maxlength="40"
-                pattern="[A-Za-z0-9._-]{1,40}"
-                placeholder="CHG0012345"
-                required>
-              <div class="field-help">
-                Use letters, numbers, full stops, underscores or hyphens.
+          <section
+            id="backupPrecheckArea"
+            class="backup-precheck-area"
+            hidden
+            aria-live="polite"></section>
+
+          <fieldset id="backupActionFields" class="backup-action-fields" disabled>
+            <legend>Backup Now authorization</legend>
+
+            <div class="grid">
+              <div class="field">
+                <label for="backupChangeNumber">Change / incident number *</label>
+                <input
+                  id="backupChangeNumber"
+                  type="text"
+                  maxlength="40"
+                  pattern="[A-Za-z0-9._\-]{1,40}"
+                  placeholder="CHG0012345"
+                  required>
+                <div class="field-help">
+                  Use letters, numbers, full stops, underscores or hyphens.
+                </div>
+              </div>
+
+              <div class="field full-grid">
+                <label for="backupReason">Reason *</label>
+                <textarea
+                  id="backupReason"
+                  rows="3"
+                  maxlength="500"
+                  placeholder="Pre-maintenance on-demand Azure Backup"
+                  required></textarea>
               </div>
             </div>
-
-            <div class="field full-grid">
-              <label for="backupReason">Reason *</label>
-              <textarea
-                id="backupReason"
-                rows="3"
-                maxlength="500"
-                placeholder="Pre-maintenance on-demand Azure Backup"
-                required></textarea>
-            </div>
-          </div>
+          </fieldset>
 
           <div id="backupValidationMessage"
             class="validation-message" role="alert"></div>
 
           <div class="actions">
             <button id="backupSubmitButton" type="submit" disabled>
-              Verifying identity…
+              Check backup status first
             </button>
             <button id="backupClearButton" type="button" class="secondary">
               Clear
@@ -477,6 +497,6 @@
 
   </main>
 
-  <script src="/app.js?v=20260808-vm-backup-1"></script>
+  <script src="/app.js?v=20260808-backup-precheck-1"></script>
 </body>
 </html>

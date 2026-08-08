@@ -142,7 +142,7 @@
             "Write_Processing_Status": {
                 "type": "Http",
                 "runAfter": {
-                    "Initialize_Backup_Failure_Count": [
+                    "Initialize_Backup_Warning_Count": [
                         "Succeeded"
                     ]
                 },
@@ -507,140 +507,412 @@
                                                             ]
                                                         },
                                                         "actions": {
-                                                            "Delay_Protected_Item_Refresh": {
-                                                                "type": "Wait",
-                                                                "inputs": {
-                                                                    "interval": {
-                                                                        "count": 15,
-                                                                        "unit": "Second"
-                                                                    }
-                                                                }
+                                                            "Backup_Job_ID": {
+                                                                "type": "Compose",
+                                                                "inputs": "@body('Get_Backup_Operation_Status')?['properties']?['jobId']"
                                                             },
-                                                            "Get_Updated_Backup_Details": {
-                                                                "type": "Http",
+                                                            "Backup_Job_ID_Is_Available": {
+                                                                "type": "If",
                                                                 "runAfter": {
-                                                                    "Delay_Protected_Item_Refresh": [
+                                                                    "Backup_Job_ID": [
                                                                         "Succeeded"
                                                                     ]
                                                                 },
-                                                                "inputs": {
-                                                                    "uri": "@concat(outputs('Protected_Item_URI'),'?api-version=',parameters('backupApiVersion'))",
-                                                                    "method": "GET",
-                                                                    "authentication": {
-                                                                        "type": "ManagedServiceIdentity",
-                                                                        "audience": "https://management.azure.com/"
+                                                                "expression": {
+                                                                    "not": {
+                                                                        "equals": [
+                                                                            "@trim(coalesce(outputs('Backup_Job_ID'),''))",
+                                                                            ""
+                                                                        ]
+                                                                    }
+                                                                },
+                                                                "actions": {
+                                                                    "Backup_Job_URI": {
+                                                                        "type": "Compose",
+                                                                        "inputs": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',outputs('Vault_Resource_Group'),'/providers/Microsoft.RecoveryServices/vaults/',outputs('Vault_Name'),'/backupJobs/',outputs('Backup_Job_ID'),'?api-version=',parameters('backupApiVersion'))"
                                                                     },
-                                                                    "retryPolicy": {
-                                                                        "type": "exponential",
-                                                                        "count": 3,
-                                                                        "interval": "PT5S",
-                                                                        "minimumInterval": "PT5S",
-                                                                        "maximumInterval": "PT30S"
+                                                                    "Wait_For_Backup_Job": {
+                                                                        "type": "Until",
+                                                                        "runAfter": {
+                                                                            "Backup_Job_URI": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "expression": "@or(equals(body('Get_Backup_Job_Details')?['properties']?['status'],'Completed'),equals(body('Get_Backup_Job_Details')?['properties']?['status'],'CompletedWithWarnings'),equals(body('Get_Backup_Job_Details')?['properties']?['status'],'Failed'),equals(body('Get_Backup_Job_Details')?['properties']?['status'],'Cancelled'),equals(body('Get_Backup_Job_Details')?['properties']?['status'],'Canceled'))",
+                                                                        "limit": {
+                                                                            "count": 720,
+                                                                            "timeout": "PT6H"
+                                                                        },
+                                                                        "actions": {
+                                                                            "Delay_Backup_Job_Status_Check": {
+                                                                                "type": "Wait",
+                                                                                "inputs": {
+                                                                                    "interval": {
+                                                                                        "count": 30,
+                                                                                        "unit": "Second"
+                                                                                    }
+                                                                                }
+                                                                            },
+                                                                            "Get_Backup_Job_Details": {
+                                                                                "type": "Http",
+                                                                                "runAfter": {
+                                                                                    "Delay_Backup_Job_Status_Check": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "uri": "@outputs('Backup_Job_URI')",
+                                                                                    "method": "GET",
+                                                                                    "authentication": {
+                                                                                        "type": "ManagedServiceIdentity",
+                                                                                        "audience": "https://management.azure.com/"
+                                                                                    },
+                                                                                    "retryPolicy": {
+                                                                                        "type": "exponential",
+                                                                                        "count": 3,
+                                                                                        "interval": "PT5S",
+                                                                                        "minimumInterval": "PT5S",
+                                                                                        "maximumInterval": "PT30S"
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    "Backup_Job_Completed": {
+                                                                        "type": "If",
+                                                                        "runAfter": {
+                                                                            "Wait_For_Backup_Job": [
+                                                                                "Succeeded",
+                                                                                "TimedOut"
+                                                                            ]
+                                                                        },
+                                                                        "expression": {
+                                                                            "equals": [
+                                                                                "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                "Completed"
+                                                                            ]
+                                                                        },
+                                                                        "actions": {
+                                                                            "Delay_Protected_Item_Refresh": {
+                                                                                "type": "Wait",
+                                                                                "inputs": {
+                                                                                    "interval": {
+                                                                                        "count": 20,
+                                                                                        "unit": "Second"
+                                                                                    }
+                                                                                }
+                                                                            },
+                                                                            "Get_Updated_Backup_Details": {
+                                                                                "type": "Http",
+                                                                                "runAfter": {
+                                                                                    "Delay_Protected_Item_Refresh": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "uri": "@concat(outputs('Protected_Item_URI'),'?api-version=',parameters('backupApiVersion'))",
+                                                                                    "method": "GET",
+                                                                                    "authentication": {
+                                                                                        "type": "ManagedServiceIdentity",
+                                                                                        "audience": "https://management.azure.com/"
+                                                                                    },
+                                                                                    "retryPolicy": {
+                                                                                        "type": "exponential",
+                                                                                        "count": 3,
+                                                                                        "interval": "PT5S",
+                                                                                        "minimumInterval": "PT5S",
+                                                                                        "maximumInterval": "PT30S"
+                                                                                    }
+                                                                                }
+                                                                            },
+                                                                            "Backup_Completed": {
+                                                                                "type": "Compose",
+                                                                                "runAfter": {
+                                                                                    "Get_Updated_Backup_Details": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "requestId": "@outputs('Request_ID')",
+                                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                    "vmName": "@outputs('VM_Record')?['VMName']",
+                                                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                                                    "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
+                                                                                    "vaultName": "@outputs('Vault_Name')",
+                                                                                    "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
+                                                                                    "previousLastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
+                                                                                    "previousLastBackupTimeUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupTime']",
+                                                                                    "previousLastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                    "backupJobId": "@outputs('Backup_Job_ID')",
+                                                                                    "backupJobStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                    "backupJobStartUtc": "@body('Get_Backup_Job_Details')?['properties']?['startTime']",
+                                                                                    "backupJobEndUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "completedUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "lastBackupStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                    "lastBackupTimeUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "lastSuccessfulBackupUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "lastRecoveryPointUtc": "@body('Get_Updated_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                    "status": "Completed",
+                                                                                    "message": "On-demand Azure VM backup job completed successfully."
+                                                                                }
+                                                                            },
+                                                                            "Append_Backup_Completed": {
+                                                                                "type": "AppendToArrayVariable",
+                                                                                "runAfter": {
+                                                                                    "Backup_Completed": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "name": "BackupResults",
+                                                                                    "value": "@outputs('Backup_Completed')"
+                                                                                }
+                                                                            },
+                                                                            "Increment_Backup_Success": {
+                                                                                "type": "IncrementVariable",
+                                                                                "runAfter": {
+                                                                                    "Append_Backup_Completed": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "name": "BackupSuccessCount",
+                                                                                    "value": 1
+                                                                                }
+                                                                            },
+                                                                            "Backup_Completed_Details_Refresh_Failed": {
+                                                                                "type": "Compose",
+                                                                                "runAfter": {
+                                                                                    "Get_Updated_Backup_Details": [
+                                                                                        "Failed",
+                                                                                        "TimedOut"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "requestId": "@outputs('Request_ID')",
+                                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                    "vmName": "@outputs('VM_Record')?['VMName']",
+                                                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                                                    "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
+                                                                                    "vaultName": "@outputs('Vault_Name')",
+                                                                                    "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
+                                                                                    "previousLastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
+                                                                                    "previousLastBackupTimeUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupTime']",
+                                                                                    "previousLastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                    "backupJobId": "@outputs('Backup_Job_ID')",
+                                                                                    "backupJobStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                    "backupJobStartUtc": "@body('Get_Backup_Job_Details')?['properties']?['startTime']",
+                                                                                    "backupJobEndUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "completedUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "lastBackupStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                    "lastBackupTimeUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "lastSuccessfulBackupUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                    "lastRecoveryPointUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                    "status": "Completed",
+                                                                                    "message": "The Azure Backup job completed successfully, but protected-item details could not be refreshed. The successful backup date is taken from the completed backup job."
+                                                                                }
+                                                                            },
+                                                                            "Append_Backup_Completed_Details_Refresh_Failed": {
+                                                                                "type": "AppendToArrayVariable",
+                                                                                "runAfter": {
+                                                                                    "Backup_Completed_Details_Refresh_Failed": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "name": "BackupResults",
+                                                                                    "value": "@outputs('Backup_Completed_Details_Refresh_Failed')"
+                                                                                }
+                                                                            },
+                                                                            "Increment_Backup_Success_After_Refresh_Failure": {
+                                                                                "type": "IncrementVariable",
+                                                                                "runAfter": {
+                                                                                    "Append_Backup_Completed_Details_Refresh_Failed": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "name": "BackupSuccessCount",
+                                                                                    "value": 1
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        "else": {
+                                                                            "actions": {
+                                                                                "Backup_Job_Completed_With_Warnings": {
+                                                                                    "type": "If",
+                                                                                    "expression": {
+                                                                                        "equals": [
+                                                                                            "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                            "CompletedWithWarnings"
+                                                                                        ]
+                                                                                    },
+                                                                                    "actions": {
+                                                                                        "Backup_Completed_With_Warnings": {
+                                                                                            "type": "Compose",
+                                                                                            "inputs": {
+                                                                                                "requestId": "@outputs('Request_ID')",
+                                                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                                "vmName": "@outputs('VM_Record')?['VMName']",
+                                                                                                "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                                                                "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
+                                                                                                "vaultName": "@outputs('Vault_Name')",
+                                                                                                "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
+                                                                                                "previousLastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
+                                                                                                "previousLastBackupTimeUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupTime']",
+                                                                                                "previousLastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                                "backupJobId": "@outputs('Backup_Job_ID')",
+                                                                                                "backupJobStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                                "backupJobStartUtc": "@body('Get_Backup_Job_Details')?['properties']?['startTime']",
+                                                                                                "backupJobEndUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                "completedUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                "lastBackupStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                                "lastBackupTimeUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                "lastSuccessfulBackupUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                "status": "CompletedWithWarnings",
+                                                                                                "message": "The on-demand Azure VM backup job completed with warnings.",
+                                                                                                "details": "@body('Get_Backup_Job_Details')?['properties']?['errorDetails']"
+                                                                                            }
+                                                                                        },
+                                                                                        "Append_Backup_Completed_With_Warnings": {
+                                                                                            "type": "AppendToArrayVariable",
+                                                                                            "runAfter": {
+                                                                                                "Backup_Completed_With_Warnings": [
+                                                                                                    "Succeeded"
+                                                                                                ]
+                                                                                            },
+                                                                                            "inputs": {
+                                                                                                "name": "BackupResults",
+                                                                                                "value": "@outputs('Backup_Completed_With_Warnings')"
+                                                                                            }
+                                                                                        },
+                                                                                        "Increment_Backup_Success_With_Warnings": {
+                                                                                            "type": "IncrementVariable",
+                                                                                            "runAfter": {
+                                                                                                "Append_Backup_Completed_With_Warnings": [
+                                                                                                    "Succeeded"
+                                                                                                ]
+                                                                                            },
+                                                                                            "inputs": {
+                                                                                                "name": "BackupSuccessCount",
+                                                                                                "value": 1
+                                                                                            }
+                                                                                        },
+                                                                                        "Increment_Backup_Warning_Count": {
+                                                                                            "type": "IncrementVariable",
+                                                                                            "runAfter": {
+                                                                                                "Increment_Backup_Success_With_Warnings": [
+                                                                                                    "Succeeded"
+                                                                                                ]
+                                                                                            },
+                                                                                            "inputs": {
+                                                                                                "name": "BackupWarningCount",
+                                                                                                "value": 1
+                                                                                            }
+                                                                                        }
+                                                                                    },
+                                                                                    "else": {
+                                                                                        "actions": {
+                                                                                            "Backup_Job_Failed": {
+                                                                                                "type": "Compose",
+                                                                                                "inputs": {
+                                                                                                    "requestId": "@outputs('Request_ID')",
+                                                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                                    "vmName": "@outputs('VM_Record')?['VMName']",
+                                                                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                                                                    "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
+                                                                                                    "vaultName": "@outputs('Vault_Name')",
+                                                                                                    "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
+                                                                                                    "previousLastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
+                                                                                                    "previousLastBackupTimeUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupTime']",
+                                                                                                    "previousLastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                                    "backupJobId": "@outputs('Backup_Job_ID')",
+                                                                                                    "backupJobStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                                    "backupJobStartUtc": "@body('Get_Backup_Job_Details')?['properties']?['startTime']",
+                                                                                                    "backupJobEndUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                    "completedUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                    "lastBackupStatus": "@body('Get_Backup_Job_Details')?['properties']?['status']",
+                                                                                                    "lastBackupTimeUtc": "@body('Get_Backup_Job_Details')?['properties']?['endTime']",
+                                                                                                    "lastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                                    "status": "Failed",
+                                                                                                    "message": "@concat('Azure Backup job ended with status ',coalesce(body('Get_Backup_Job_Details')?['properties']?['status'],'Unknown'),'.')",
+                                                                                                    "details": "@body('Get_Backup_Job_Details')?['properties']?['errorDetails']"
+                                                                                                }
+                                                                                            },
+                                                                                            "Append_Backup_Job_Failed": {
+                                                                                                "type": "AppendToArrayVariable",
+                                                                                                "runAfter": {
+                                                                                                    "Backup_Job_Failed": [
+                                                                                                        "Succeeded"
+                                                                                                    ]
+                                                                                                },
+                                                                                                "inputs": {
+                                                                                                    "name": "BackupResults",
+                                                                                                    "value": "@outputs('Backup_Job_Failed')"
+                                                                                                }
+                                                                                            },
+                                                                                            "Increment_Backup_Job_Failure": {
+                                                                                                "type": "IncrementVariable",
+                                                                                                "runAfter": {
+                                                                                                    "Append_Backup_Job_Failed": [
+                                                                                                        "Succeeded"
+                                                                                                    ]
+                                                                                                },
+                                                                                                "inputs": {
+                                                                                                    "name": "BackupFailureCount",
+                                                                                                    "value": 1
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
                                                                     }
-                                                                }
-                                                            },
-                                                            "Backup_Completed": {
-                                                                "type": "Compose",
-                                                                "runAfter": {
-                                                                    "Get_Updated_Backup_Details": [
-                                                                        "Succeeded"
-                                                                    ]
                                                                 },
-                                                                "inputs": {
-                                                                    "requestId": "@outputs('Request_ID')",
-                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
-                                                                    "vmName": "@outputs('VM_Record')?['VMName']",
-                                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
-                                                                    "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
-                                                                    "vaultName": "@outputs('Vault_Name')",
-                                                                    "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
-                                                                    "previousLastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
-                                                                    "previousLastBackupTimeUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupTime']",
-                                                                    "previousLastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
-                                                                    "lastBackupStatus": "@body('Get_Updated_Backup_Details')?['properties']?['lastBackupStatus']",
-                                                                    "lastBackupTimeUtc": "@body('Get_Updated_Backup_Details')?['properties']?['lastBackupTime']",
-                                                                    "lastSuccessfulBackupUtc": "@body('Get_Updated_Backup_Details')?['properties']?['lastRecoveryPoint']",
-                                                                    "backupStatus": "@body('Get_Backup_Operation_Status')?['status']",
-                                                                    "backupJobId": "@body('Get_Backup_Operation_Status')?['properties']?['jobId']",
-                                                                    "completedUtc": "@body('Get_Backup_Operation_Status')?['endTime']",
-                                                                    "status": "Completed",
-                                                                    "message": "On-demand Azure VM backup completed successfully."
-                                                                }
-                                                            },
-                                                            "Append_Backup_Completed": {
-                                                                "type": "AppendToArrayVariable",
-                                                                "runAfter": {
-                                                                    "Backup_Completed": [
-                                                                        "Succeeded"
-                                                                    ]
-                                                                },
-                                                                "inputs": {
-                                                                    "name": "BackupResults",
-                                                                    "value": "@outputs('Backup_Completed')"
-                                                                }
-                                                            },
-                                                            "Increment_Backup_Success": {
-                                                                "type": "IncrementVariable",
-                                                                "runAfter": {
-                                                                    "Append_Backup_Completed": [
-                                                                        "Succeeded"
-                                                                    ]
-                                                                },
-                                                                "inputs": {
-                                                                    "name": "BackupSuccessCount",
-                                                                    "value": 1
-                                                                }
-                                                            },
-                                                            "Backup_Completed_Details_Refresh_Failed": {
-                                                                "type": "Compose",
-                                                                "runAfter": {
-                                                                    "Get_Updated_Backup_Details": [
-                                                                        "Failed",
-                                                                        "TimedOut"
-                                                                    ]
-                                                                },
-                                                                "inputs": {
-                                                                    "requestId": "@outputs('Request_ID')",
-                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
-                                                                    "vmName": "@outputs('VM_Record')?['VMName']",
-                                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
-                                                                    "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
-                                                                    "vaultName": "@outputs('Vault_Name')",
-                                                                    "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
-                                                                    "previousLastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
-                                                                    "previousLastBackupTimeUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupTime']",
-                                                                    "previousLastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
-                                                                    "lastBackupStatus": "Unknown",
-                                                                    "lastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
-                                                                    "backupStatus": "@body('Get_Backup_Operation_Status')?['status']",
-                                                                    "backupJobId": "@body('Get_Backup_Operation_Status')?['properties']?['jobId']",
-                                                                    "completedUtc": "@body('Get_Backup_Operation_Status')?['endTime']",
-                                                                    "status": "Completed",
-                                                                    "message": "Azure Backup completed successfully, but the protected-item details could not be refreshed. The displayed successful backup date is the previously known recovery point."
-                                                                }
-                                                            },
-                                                            "Append_Backup_Completed_Details_Refresh_Failed": {
-                                                                "type": "AppendToArrayVariable",
-                                                                "runAfter": {
-                                                                    "Backup_Completed_Details_Refresh_Failed": [
-                                                                        "Succeeded"
-                                                                    ]
-                                                                },
-                                                                "inputs": {
-                                                                    "name": "BackupResults",
-                                                                    "value": "@outputs('Backup_Completed_Details_Refresh_Failed')"
-                                                                }
-                                                            },
-                                                            "Increment_Backup_Success_After_Refresh_Failure": {
-                                                                "type": "IncrementVariable",
-                                                                "runAfter": {
-                                                                    "Append_Backup_Completed_Details_Refresh_Failed": [
-                                                                        "Succeeded"
-                                                                    ]
-                                                                },
-                                                                "inputs": {
-                                                                    "name": "BackupSuccessCount",
-                                                                    "value": 1
+                                                                "else": {
+                                                                    "actions": {
+                                                                        "Backup_Job_ID_Missing": {
+                                                                            "type": "Compose",
+                                                                            "inputs": {
+                                                                                "requestId": "@outputs('Request_ID')",
+                                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                "vmName": "@outputs('VM_Record')?['VMName']",
+                                                                                "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                                                "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
+                                                                                "vaultName": "@outputs('Vault_Name')",
+                                                                                "policyName": "@body('Get_Backup_Protection_Status')?['policyName']",
+                                                                                "lastBackupStatus": "@body('Get_Current_Backup_Details')?['properties']?['lastBackupStatus']",
+                                                                                "lastSuccessfulBackupUtc": "@body('Get_Current_Backup_Details')?['properties']?['lastRecoveryPoint']",
+                                                                                "status": "Failed",
+                                                                                "message": "Azure accepted the backup trigger operation but did not return a backup job ID, so the portal could not verify job completion."
+                                                                            }
+                                                                        },
+                                                                        "Append_Backup_Job_ID_Missing": {
+                                                                            "type": "AppendToArrayVariable",
+                                                                            "runAfter": {
+                                                                                "Backup_Job_ID_Missing": [
+                                                                                    "Succeeded"
+                                                                                ]
+                                                                            },
+                                                                            "inputs": {
+                                                                                "name": "BackupResults",
+                                                                                "value": "@outputs('Backup_Job_ID_Missing')"
+                                                                            }
+                                                                        },
+                                                                        "Increment_Backup_Job_ID_Missing_Failure": {
+                                                                            "type": "IncrementVariable",
+                                                                            "runAfter": {
+                                                                                "Append_Backup_Job_ID_Missing": [
+                                                                                    "Succeeded"
+                                                                                ]
+                                                                            },
+                                                                            "inputs": {
+                                                                                "name": "BackupFailureCount",
+                                                                                "value": 1
+                                                                            }
+                                                                        }
+                                                                    }
                                                                 }
                                                             }
                                                         },
@@ -1090,7 +1362,7 @@
                                 "Succeeded"
                             ]
                         },
-                        "inputs": "@if(and(greater(variables('BackupSuccessCount'),0),equals(variables('BackupFailureCount'),0)),'Completed',if(and(greater(variables('BackupSuccessCount'),0),greater(variables('BackupFailureCount'),0)),'PartiallyCompleted','Failed'))"
+                        "inputs": "@if(and(greater(variables('BackupSuccessCount'),0),equals(variables('BackupFailureCount'),0),equals(variables('BackupWarningCount'),0)),'Completed',if(greater(variables('BackupSuccessCount'),0),'PartiallyCompleted','Failed'))"
                     },
                     "Write_Final_Backup_Status": {
                         "type": "Http",
@@ -1113,14 +1385,15 @@
                                 "requesterUserId": "@triggerBody()?['requesterUserId']",
                                 "requesterUserName": "@triggerBody()?['requesterUserName']",
                                 "status": "@outputs('Final_Backup_Status')",
-                                "message": "@if(equals(outputs('Final_Backup_Status'),'Completed'),'All requested on-demand VM backups completed successfully.',if(equals(outputs('Final_Backup_Status'),'PartiallyCompleted'),'Some VM backups completed, but one or more VMs failed or were not protected.','No requested VM backup completed successfully.'))",
+                                "message": "@if(equals(outputs('Final_Backup_Status'),'Completed'),'All requested on-demand VM backup jobs completed successfully.',if(equals(outputs('Final_Backup_Status'),'PartiallyCompleted'),'The VM backup request completed, but one or more backup jobs completed with warnings or failed.','No requested VM backup job completed successfully.'))",
                                 "submittedUtc": "@triggerBody()?['submittedUtc']",
                                 "completedUtc": "@utcNow()",
                                 "submittedCount": "@length(outputs('Distinct_Hostnames'))",
                                 "successCount": "@variables('BackupSuccessCount')",
                                 "failureCount": "@variables('BackupFailureCount')",
                                 "backupCount": "@variables('BackupSuccessCount')",
-                                "results": "@variables('BackupResults')"
+                                "results": "@variables('BackupResults')",
+                                "warningCount": "@variables('BackupWarningCount')"
                             },
                             "authentication": {
                                 "type": "ManagedServiceIdentity",
@@ -1163,6 +1436,23 @@
                             }
                         }
                     }
+                }
+            },
+            "Initialize_Backup_Warning_Count": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "BackupWarningCount",
+                            "type": "integer",
+                            "value": 0
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_Backup_Failure_Count": [
+                        "Succeeded"
+                    ]
                 }
             }
         },

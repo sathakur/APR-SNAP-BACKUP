@@ -1,0 +1,699 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "parameters": {
+            "maximumHostnames": {
+                "defaultValue": 5,
+                "type": "Int"
+            },
+            "resourceGraphApiVersion": {
+                "defaultValue": "2024-04-01",
+                "type": "String"
+            },
+            "backupApiVersion": {
+                "defaultValue": "2026-05-01",
+                "type": "String"
+            },
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        },
+        "triggers": {
+            "When_an_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "hostnames",
+                            "requesterUserId"
+                        ],
+                        "properties": {
+                            "hostnames": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "requesterUserId": {
+                                "type": "string"
+                            },
+                            "requesterUserName": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Distinct_Hostnames": {
+                "type": "Compose",
+                "inputs": "@union(triggerBody()?['hostnames'],triggerBody()?['hostnames'])",
+                "runAfter": {}
+            },
+            "Initialize_Status_Results": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "StatusResults",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Distinct_Hostnames": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Initialize_Eligible_Count": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "EligibleCount",
+                            "type": "integer",
+                            "value": 0
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_Status_Results": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Validate_Request": {
+                "type": "If",
+                "runAfter": {
+                    "Initialize_Eligible_Count": [
+                        "Succeeded"
+                    ]
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "greaterOrEquals": [
+                                "@length(outputs('Distinct_Hostnames'))",
+                                1
+                            ]
+                        },
+                        {
+                            "lessOrEquals": [
+                                "@length(outputs('Distinct_Hostnames'))",
+                                "@parameters('maximumHostnames')"
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "For_Each_Hostname": {
+                        "type": "Foreach",
+                        "foreach": "@outputs('Distinct_Hostnames')",
+                        "runtimeConfiguration": {
+                            "concurrency": {
+                                "repetitions": 1
+                            }
+                        },
+                        "actions": {
+                            "Normalize_Current_Hostname": {
+                                "type": "Compose",
+                                "inputs": "@toUpper(trim(item()))"
+                            },
+                            "Current_Hostname_Is_Valid": {
+                                "type": "If",
+                                "runAfter": {
+                                    "Normalize_Current_Hostname": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "expression": {
+                                    "and": [
+                                        {
+                                            "not": {
+                                                "equals": [
+                                                    "@outputs('Normalize_Current_Hostname')",
+                                                    ""
+                                                ]
+                                            }
+                                        },
+                                        {
+                                            "lessOrEquals": [
+                                                "@length(outputs('Normalize_Current_Hostname'))",
+                                                253
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "actions": {
+                                    "Query_Azure_Resource_Graph": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "uri": "@concat('https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=',parameters('resourceGraphApiVersion'))",
+                                            "method": "POST",
+                                            "headers": {
+                                                "Content-Type": "application/json"
+                                            },
+                                            "body": {
+                                                "query": "@concat('Resources | where type =~ ''microsoft.compute/virtualmachines'' | extend OSHostName=tostring(properties.osProfile.computerName) | extend ShortOSHostName=tostring(split(OSHostName,''.'')[0]) | where toupper(name) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(OSHostName) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(ShortOSHostName) == ''',outputs('Normalize_Current_Hostname'),''' | join kind=leftouter (ResourceContainers | where type =~ ''microsoft.resources/subscriptions'' | project subscriptionId, SubscriptionName=name) on subscriptionId | project Hostname=OSHostName, VMName=name, SubscriptionId=subscriptionId, SubscriptionName, ResourceGroup=resourceGroup, Location=location, ResourceId=id')",
+                                                "options": {
+                                                    "resultFormat": "objectArray"
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ManagedServiceIdentity",
+                                                "audience": "https://management.azure.com/"
+                                            },
+                                            "retryPolicy": {
+                                                "type": "exponential",
+                                                "count": 3,
+                                                "interval": "PT5S",
+                                                "minimumInterval": "PT5S",
+                                                "maximumInterval": "PT30S"
+                                            }
+                                        }
+                                    },
+                                    "Exactly_One_VM_Found": {
+                                        "type": "If",
+                                        "runAfter": {
+                                            "Query_Azure_Resource_Graph": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "expression": {
+                                            "equals": [
+                                                "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                1
+                                            ]
+                                        },
+                                        "actions": {
+                                            "VM_Record": {
+                                                "type": "Compose",
+                                                "inputs": "@first(body('Query_Azure_Resource_Graph')?['data'])"
+                                            },
+                                            "Get_Backup_Protection_Status": {
+                                                "type": "Http",
+                                                "runAfter": {
+                                                    "VM_Record": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/providers/Microsoft.RecoveryServices/locations/',outputs('VM_Record')?['Location'],'/backupStatus?api-version=',parameters('backupApiVersion'))",
+                                                    "method": "POST",
+                                                    "headers": {
+                                                        "Content-Type": "application/json"
+                                                    },
+                                                    "body": {
+                                                        "resourceId": "@outputs('VM_Record')?['ResourceId']",
+                                                        "resourceType": "VM"
+                                                    },
+                                                    "authentication": {
+                                                        "type": "ManagedServiceIdentity",
+                                                        "audience": "https://management.azure.com/"
+                                                    },
+                                                    "retryPolicy": {
+                                                        "type": "exponential",
+                                                        "count": 3,
+                                                        "interval": "PT5S",
+                                                        "minimumInterval": "PT5S",
+                                                        "maximumInterval": "PT30S"
+                                                    }
+                                                }
+                                            },
+                                            "Backup_Is_Protected": {
+                                                "type": "If",
+                                                "runAfter": {
+                                                    "Get_Backup_Protection_Status": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "expression": {
+                                                    "equals": [
+                                                        "@toLower(coalesce(body('Get_Backup_Protection_Status')?['protectionStatus'],''))",
+                                                        "protected"
+                                                    ]
+                                                },
+                                                "actions": {
+                                                    "Vault_ID": {
+                                                        "type": "Compose",
+                                                        "inputs": "@body('Get_Backup_Protection_Status')?['vaultId']"
+                                                    },
+                                                    "Vault_Resource_Group": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Vault_ID": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": "@split(outputs('Vault_ID'),'/')[4]"
+                                                    },
+                                                    "Vault_Name": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Vault_Resource_Group": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": "@split(outputs('Vault_ID'),'/')[8]"
+                                                    },
+                                                    "Protected_Item_URI": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Vault_Name": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": "@concat('https://management.azure.com',outputs('Vault_ID'),'/backupFabrics/',body('Get_Backup_Protection_Status')?['fabricName'],'/protectionContainers/',body('Get_Backup_Protection_Status')?['containerName'],'/protectedItems/',body('Get_Backup_Protection_Status')?['protectedItemName'])"
+                                                    },
+                                                    "Get_Protected_Item_Details": {
+                                                        "type": "Http",
+                                                        "runAfter": {
+                                                            "Protected_Item_URI": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "uri": "@concat(outputs('Protected_Item_URI'),'?api-version=',parameters('backupApiVersion'))",
+                                                            "method": "GET",
+                                                            "authentication": {
+                                                                "type": "ManagedServiceIdentity",
+                                                                "audience": "https://management.azure.com/"
+                                                            },
+                                                            "retryPolicy": {
+                                                                "type": "exponential",
+                                                                "count": 3,
+                                                                "interval": "PT5S",
+                                                                "minimumInterval": "PT5S",
+                                                                "maximumInterval": "PT30S"
+                                                            }
+                                                        }
+                                                    },
+                                                    "List_Active_Backup_Jobs": {
+                                                        "type": "Http",
+                                                        "runAfter": {
+                                                            "Get_Protected_Item_Details": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',outputs('Vault_Resource_Group'),'/providers/Microsoft.RecoveryServices/vaults/',outputs('Vault_Name'),'/backupJobs?api-version=',parameters('backupApiVersion'),'&$filter=',encodeUriComponent('operation eq ''Backup'' and backupManagementType eq ''AzureIaasVM'' and status eq ''InProgress'''))",
+                                                            "method": "GET",
+                                                            "authentication": {
+                                                                "type": "ManagedServiceIdentity",
+                                                                "audience": "https://management.azure.com/"
+                                                            },
+                                                            "retryPolicy": {
+                                                                "type": "exponential",
+                                                                "count": 3,
+                                                                "interval": "PT5S",
+                                                                "minimumInterval": "PT5S",
+                                                                "maximumInterval": "PT30S"
+                                                            }
+                                                        }
+                                                    },
+                                                    "Filter_Active_VM_Backup_Jobs": {
+                                                        "type": "Query",
+                                                        "runAfter": {
+                                                            "List_Active_Backup_Jobs": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "from": "@coalesce(body('List_Active_Backup_Jobs')?['value'],createArray())",
+                                                            "where": "@equals(toUpper(coalesce(item()?['properties']?['entityFriendlyName'],'')),toUpper(outputs('VM_Record')?['VMName']))"
+                                                        }
+                                                    },
+                                                    "Recent_Completed_Filter": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Filter_Active_VM_Backup_Jobs": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": "@concat('startTime eq ''',formatDateTime(addDays(utcNow(),-30),'yyyy-MM-dd HH:mm:ss'),''' and endTime eq ''',formatDateTime(utcNow(),'yyyy-MM-dd HH:mm:ss'),''' and operation eq ''Backup'' and backupManagementType eq ''AzureIaasVM'' and status eq ''Completed''')"
+                                                    },
+                                                    "List_Recent_Completed_Backup_Jobs": {
+                                                        "type": "Http",
+                                                        "runAfter": {
+                                                            "Recent_Completed_Filter": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',outputs('Vault_Resource_Group'),'/providers/Microsoft.RecoveryServices/vaults/',outputs('Vault_Name'),'/backupJobs?api-version=',parameters('backupApiVersion'),'&$filter=',encodeUriComponent(outputs('Recent_Completed_Filter')))",
+                                                            "method": "GET",
+                                                            "authentication": {
+                                                                "type": "ManagedServiceIdentity",
+                                                                "audience": "https://management.azure.com/"
+                                                            },
+                                                            "retryPolicy": {
+                                                                "type": "exponential",
+                                                                "count": 3,
+                                                                "interval": "PT5S",
+                                                                "minimumInterval": "PT5S",
+                                                                "maximumInterval": "PT30S"
+                                                            }
+                                                        }
+                                                    },
+                                                    "Filter_Recent_VM_Backup_Jobs": {
+                                                        "type": "Query",
+                                                        "runAfter": {
+                                                            "List_Recent_Completed_Backup_Jobs": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "from": "@coalesce(body('List_Recent_Completed_Backup_Jobs')?['value'],createArray())",
+                                                            "where": "@equals(toUpper(coalesce(item()?['properties']?['entityFriendlyName'],'')),toUpper(outputs('VM_Record')?['VMName']))"
+                                                        }
+                                                    },
+                                                    "Build_Protected_VM_Status": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Filter_Recent_VM_Backup_Jobs": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                            "found": true,
+                                                            "vmName": "@outputs('VM_Record')?['VMName']",
+                                                            "subscriptionId": "@outputs('VM_Record')?['SubscriptionId']",
+                                                            "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                            "resourceGroup": "@outputs('VM_Record')?['ResourceGroup']",
+                                                            "location": "@outputs('VM_Record')?['Location']",
+                                                            "resourceId": "@outputs('VM_Record')?['ResourceId']",
+                                                            "protected": true,
+                                                            "protectionStatus": "@body('Get_Backup_Protection_Status')?['protectionStatus']",
+                                                            "vaultName": "@outputs('Vault_Name')",
+                                                            "vaultResourceGroup": "@outputs('Vault_Resource_Group')",
+                                                            "policyName": "@coalesce(body('Get_Protected_Item_Details')?['properties']?['policyName'],body('Get_Backup_Protection_Status')?['policyName'])",
+                                                            "lastBackupStatus": "@body('Get_Protected_Item_Details')?['properties']?['lastBackupStatus']",
+                                                            "lastBackupTimeUtc": "@body('Get_Protected_Item_Details')?['properties']?['lastBackupTime']",
+                                                            "lastSuccessfulBackupUtc": "@body('Get_Protected_Item_Details')?['properties']?['lastRecoveryPoint']",
+                                                            "currentJobStatus": "@if(greater(length(body('Filter_Active_VM_Backup_Jobs')),0),first(body('Filter_Active_VM_Backup_Jobs'))?['properties']?['status'],null)",
+                                                            "currentJobStartUtc": "@if(greater(length(body('Filter_Active_VM_Backup_Jobs')),0),first(body('Filter_Active_VM_Backup_Jobs'))?['properties']?['startTime'],null)",
+                                                            "currentJobId": "@if(greater(length(body('Filter_Active_VM_Backup_Jobs')),0),first(body('Filter_Active_VM_Backup_Jobs'))?['name'],null)",
+                                                            "recentCompletedJobs": "@take(body('Filter_Recent_VM_Backup_Jobs'),5)",
+                                                            "backupNowAllowed": "@equals(length(body('Filter_Active_VM_Backup_Jobs')),0)",
+                                                            "message": "@if(equals(length(body('Filter_Active_VM_Backup_Jobs')),0),'VM is protected and no active backup job was found.','A backup job is currently running for this VM.')"
+                                                        }
+                                                    },
+                                                    "Append_Protected_VM_Status": {
+                                                        "type": "AppendToArrayVariable",
+                                                        "runAfter": {
+                                                            "Build_Protected_VM_Status": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "name": "StatusResults",
+                                                            "value": "@outputs('Build_Protected_VM_Status')"
+                                                        }
+                                                    },
+                                                    "Eligible_For_Backup_Now": {
+                                                        "type": "If",
+                                                        "runAfter": {
+                                                            "Append_Protected_VM_Status": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "expression": {
+                                                            "equals": [
+                                                                "@length(body('Filter_Active_VM_Backup_Jobs'))",
+                                                                0
+                                                            ]
+                                                        },
+                                                        "actions": {
+                                                            "Increment_Eligible_Count": {
+                                                                "type": "IncrementVariable",
+                                                                "inputs": {
+                                                                    "name": "EligibleCount",
+                                                                    "value": 1
+                                                                }
+                                                            }
+                                                        },
+                                                        "else": {
+                                                            "actions": {}
+                                                        }
+                                                    }
+                                                },
+                                                "else": {
+                                                    "actions": {
+                                                        "Build_Not_Protected_Status": {
+                                                            "type": "Compose",
+                                                            "inputs": {
+                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                "found": true,
+                                                                "vmName": "@outputs('VM_Record')?['VMName']",
+                                                                "subscriptionId": "@outputs('VM_Record')?['SubscriptionId']",
+                                                                "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                                "resourceGroup": "@outputs('VM_Record')?['ResourceGroup']",
+                                                                "location": "@outputs('VM_Record')?['Location']",
+                                                                "resourceId": "@outputs('VM_Record')?['ResourceId']",
+                                                                "protected": false,
+                                                                "protectionStatus": "@coalesce(body('Get_Backup_Protection_Status')?['protectionStatus'],'NotProtected')",
+                                                                "vaultName": "Not available",
+                                                                "policyName": "@coalesce(body('Get_Backup_Protection_Status')?['policyName'],'Not available')",
+                                                                "lastBackupStatus": "Not available",
+                                                                "lastBackupTimeUtc": null,
+                                                                "lastSuccessfulBackupUtc": null,
+                                                                "currentJobStatus": null,
+                                                                "currentJobStartUtc": null,
+                                                                "recentCompletedJobs": [],
+                                                                "backupNowAllowed": false,
+                                                                "message": "VM is not currently protected by Azure Backup."
+                                                            }
+                                                        },
+                                                        "Append_Not_Protected_Status": {
+                                                            "type": "AppendToArrayVariable",
+                                                            "runAfter": {
+                                                                "Build_Not_Protected_Status": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "inputs": {
+                                                                "name": "StatusResults",
+                                                                "value": "@outputs('Build_Not_Protected_Status')"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "Protection_Status_Read_Failed": {
+                                                "type": "Compose",
+                                                "runAfter": {
+                                                    "Get_Backup_Protection_Status": [
+                                                        "Failed",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                    "found": true,
+                                                    "vmName": "@outputs('VM_Record')?['VMName']",
+                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                    "resourceGroup": "@outputs('VM_Record')?['ResourceGroup']",
+                                                    "protected": false,
+                                                    "protectionStatus": "Unknown",
+                                                    "vaultName": "Unknown",
+                                                    "policyName": "Unknown",
+                                                    "lastBackupStatus": "Unknown",
+                                                    "lastBackupTimeUtc": null,
+                                                    "lastSuccessfulBackupUtc": null,
+                                                    "currentJobStatus": null,
+                                                    "recentCompletedJobs": [],
+                                                    "backupNowAllowed": false,
+                                                    "message": "Azure Backup protection status could not be read."
+                                                }
+                                            },
+                                            "Append_Protection_Status_Read_Failed": {
+                                                "type": "AppendToArrayVariable",
+                                                "runAfter": {
+                                                    "Protection_Status_Read_Failed": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "name": "StatusResults",
+                                                    "value": "@outputs('Protection_Status_Read_Failed')"
+                                                }
+                                            }
+                                        },
+                                        "else": {
+                                            "actions": {
+                                                "Build_VM_Lookup_Failure": {
+                                                    "type": "Compose",
+                                                    "inputs": {
+                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                        "found": false,
+                                                        "protected": false,
+                                                        "protectionStatus": "Unknown",
+                                                        "vaultName": "Not available",
+                                                        "policyName": "Not available",
+                                                        "lastBackupStatus": "Unknown",
+                                                        "lastBackupTimeUtc": null,
+                                                        "lastSuccessfulBackupUtc": null,
+                                                        "currentJobStatus": null,
+                                                        "recentCompletedJobs": [],
+                                                        "backupNowAllowed": false,
+                                                        "message": "@if(equals(length(body('Query_Azure_Resource_Graph')?['data']),0),'No matching Azure VM was found.','Multiple Azure VMs matched this hostname.')"
+                                                    }
+                                                },
+                                                "Append_VM_Lookup_Failure": {
+                                                    "type": "AppendToArrayVariable",
+                                                    "runAfter": {
+                                                        "Build_VM_Lookup_Failure": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "inputs": {
+                                                        "name": "StatusResults",
+                                                        "value": "@outputs('Build_VM_Lookup_Failure')"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "Resource_Graph_Query_Failed": {
+                                        "type": "Compose",
+                                        "runAfter": {
+                                            "Query_Azure_Resource_Graph": [
+                                                "Failed",
+                                                "TimedOut"
+                                            ]
+                                        },
+                                        "inputs": {
+                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                            "found": false,
+                                            "protected": false,
+                                            "protectionStatus": "Unknown",
+                                            "vaultName": "Not available",
+                                            "policyName": "Not available",
+                                            "lastBackupStatus": "Unknown",
+                                            "lastBackupTimeUtc": null,
+                                            "lastSuccessfulBackupUtc": null,
+                                            "currentJobStatus": null,
+                                            "recentCompletedJobs": [],
+                                            "backupNowAllowed": false,
+                                            "message": "Azure Resource Graph VM discovery failed."
+                                        }
+                                    },
+                                    "Append_Resource_Graph_Query_Failed": {
+                                        "type": "AppendToArrayVariable",
+                                        "runAfter": {
+                                            "Resource_Graph_Query_Failed": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "inputs": {
+                                            "name": "StatusResults",
+                                            "value": "@outputs('Resource_Graph_Query_Failed')"
+                                        }
+                                    }
+                                },
+                                "else": {
+                                    "actions": {
+                                        "Build_Invalid_Hostname": {
+                                            "type": "Compose",
+                                            "inputs": {
+                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                "found": false,
+                                                "protected": false,
+                                                "protectionStatus": "Unknown",
+                                                "backupNowAllowed": false,
+                                                "recentCompletedJobs": [],
+                                                "message": "Hostname is empty or exceeds the allowed length."
+                                            }
+                                        },
+                                        "Append_Invalid_Hostname": {
+                                            "type": "AppendToArrayVariable",
+                                            "runAfter": {
+                                                "Build_Invalid_Hostname": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "inputs": {
+                                                "name": "StatusResults",
+                                                "value": "@outputs('Build_Invalid_Hostname')"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Respond_With_Backup_Status": {
+                        "type": "Response",
+                        "kind": "Http",
+                        "runAfter": {
+                            "For_Each_Hostname": [
+                                "Succeeded",
+                                "Failed",
+                                "TimedOut",
+                                "Skipped"
+                            ]
+                        },
+                        "inputs": {
+                            "statusCode": 200,
+                            "headers": {
+                                "Content-Type": "application/json",
+                                "Cache-Control": "no-store"
+                            },
+                            "body": {
+                                "status": "Checked",
+                                "checkedCount": "@length(outputs('Distinct_Hostnames'))",
+                                "eligibleCount": "@variables('EligibleCount')",
+                                "allEligible": "@and(equals(variables('EligibleCount'),length(outputs('Distinct_Hostnames'))),greater(length(outputs('Distinct_Hostnames')),0))",
+                                "message": "@if(and(equals(variables('EligibleCount'),length(outputs('Distinct_Hostnames'))),greater(length(outputs('Distinct_Hostnames')),0)),'All entered VMs are protected and no active backup job was found.','One or more VMs are not eligible for Backup Now. Review the status details.')",
+                                "items": "@variables('StatusResults')"
+                            }
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Respond_Invalid_Request": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 400,
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "status": "InvalidRequest",
+                                    "message": "Provide between 1 and 5 unique VM hostnames.",
+                                    "items": []
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "outputs": {}
+    },
+    "parameters": {
+        "maximumHostnames": {
+            "value": 5
+        },
+        "resourceGraphApiVersion": {
+            "value": "2024-04-01"
+        },
+        "backupApiVersion": {
+            "value": "2026-05-01"
+        },
+        "$connections": {
+            "type": "Object",
+            "value": {}
+        }
+    }
+}

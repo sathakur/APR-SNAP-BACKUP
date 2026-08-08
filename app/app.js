@@ -57,6 +57,12 @@ const backupHostnamesInput =
   document.getElementById("backupHostnames");
 const backupHostnameCount =
   document.getElementById("backupHostnameCount");
+const backupCheckButton =
+  document.getElementById("backupCheckButton");
+const backupPrecheckArea =
+  document.getElementById("backupPrecheckArea");
+const backupActionFields =
+  document.getElementById("backupActionFields");
 const backupValidationMessage =
   document.getElementById("backupValidationMessage");
 const backupSubmitButton =
@@ -80,6 +86,8 @@ const BACKUP_STATUS_MAX_POLLS = 2160;
 let backupStatusPollTimer = null;
 let backupStatusPollCount = 0;
 let currentBackupRequestId = null;
+let backupPrecheckFingerprint = "";
+let backupPrecheckPassed = false;
 
 let authenticatedPrincipal = null;
 
@@ -544,8 +552,11 @@ async function loadAuthenticatedUser() {
   snapshotSubmitButton.disabled = false;
   snapshotSubmitButton.textContent = "Create VM snapshots";
 
-  backupSubmitButton.disabled = false;
-  backupSubmitButton.textContent = "Trigger Backup Now";
+  backupCheckButton.disabled = false;
+  backupCheckButton.textContent = "Check Backup Status";
+
+  backupSubmitButton.disabled = true;
+  backupSubmitButton.textContent = "Check backup status first";
 }
 
 function validateForm(payload) {
@@ -1112,9 +1123,399 @@ function updateBackupHostnameCount() {
   );
 }
 
+
+function getBackupHostnamesFingerprint() {
+  return parseHostnames(
+    backupHostnamesInput.value
+  )
+    .slice()
+    .sort()
+    .join("|");
+}
+
+function resetBackupPrecheck(
+  clearDisplay = true
+) {
+  backupPrecheckFingerprint = "";
+  backupPrecheckPassed = false;
+
+  backupActionFields.disabled = true;
+  backupSubmitButton.disabled = true;
+  backupSubmitButton.textContent =
+    "Check backup status first";
+
+  if (clearDisplay) {
+    backupPrecheckArea.hidden = true;
+    backupPrecheckArea.innerHTML = "";
+  }
+}
+
+function getJobDurationMinutes(job) {
+  const properties =
+    job?.properties || job || {};
+
+  const start = Date.parse(
+    properties.startTime || ""
+  );
+  const end = Date.parse(
+    properties.endTime || ""
+  );
+
+  if (
+    Number.isFinite(start) &&
+    Number.isFinite(end) &&
+    end >= start
+  ) {
+    return (end - start) / 60000;
+  }
+
+  return null;
+}
+
+function getEstimatedBackupMinutes(item) {
+  const durations =
+    (Array.isArray(item.recentCompletedJobs)
+      ? item.recentCompletedJobs
+      : [])
+      .map(getJobDurationMinutes)
+      .filter(
+        (value) =>
+          Number.isFinite(value) &&
+          value > 0
+      )
+      .slice(0, 5)
+      .sort((a, b) => a - b);
+
+  if (durations.length === 0) {
+    return null;
+  }
+
+  const middle =
+    Math.floor(durations.length / 2);
+
+  return durations.length % 2 === 0
+    ? (
+        durations[middle - 1] +
+        durations[middle]
+      ) / 2
+    : durations[middle];
+}
+
+function formatApproxDuration(item) {
+  const minutes =
+    getEstimatedBackupMinutes(item);
+
+  if (!Number.isFinite(minutes)) {
+    return `
+      <span>Not enough recent history</span>
+      <span class="estimate-note">
+        Actual backup duration depends on changed data,
+        disk count and Azure Backup processing.
+      </span>`;
+  }
+
+  const rounded =
+    Math.max(1, Math.round(minutes));
+
+  const historyCount =
+    Math.min(
+      5,
+      Array.isArray(item.recentCompletedJobs)
+        ? item.recentCompletedJobs.length
+        : 0
+    );
+
+  return `
+    <strong>~${escapeHtml(rounded)} min</strong>
+    <span class="estimate-note">
+      Median of ${escapeHtml(historyCount)} recent successful backup job${historyCount === 1 ? "" : "s"}.
+      Actual duration may vary.
+    </span>`;
+}
+
+function renderBackupPrecheck(result) {
+  const items =
+    Array.isArray(result.items)
+      ? result.items
+      : [];
+
+  const allEligible =
+    Boolean(result.allEligible) &&
+    items.length > 0;
+
+  let bannerClass =
+    allEligible
+      ? "success"
+      : "warning";
+
+  let bannerTitle =
+    allEligible
+      ? "Backup Now is available"
+      : "Backup Now is not available for all entered VMs";
+
+  if (items.length === 0) {
+    bannerClass = "error";
+    bannerTitle =
+      "Backup status could not be determined";
+  }
+
+  const rows =
+    items.map((item) => {
+      const activeJob =
+        String(
+          item.currentJobStatus || ""
+        ).trim();
+
+      const currentJobText =
+        activeJob
+          ? `
+            <span class="current-job-inprogress">
+              ${escapeHtml(activeJob)}
+            </span>
+            ${
+              item.currentJobStartUtc
+                ? `<span class="estimate-note">Started ${escapeHtml(
+                    formatBackupDateTime(
+                      item.currentJobStartUtc
+                    )
+                  )}</span>`
+                : ""
+            }`
+          : "None";
+
+      const eligibleText =
+        item.backupNowAllowed
+          ? '<span class="badge badge-success">Ready</span>'
+          : '<span class="badge badge-warning">Blocked</span>';
+
+      return `
+        <tr>
+          <td>${escapeHtml(
+            item.hostname || ""
+          )}</td>
+          <td>${escapeHtml(
+            item.subscriptionName ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            item.resourceGroup ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            item.protectionStatus ||
+            "Unknown"
+          )}</td>
+          <td>${escapeHtml(
+            item.vaultName ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            item.policyName ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            item.lastBackupStatus ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            formatBackupDateTime(
+              item.lastBackupTimeUtc
+            )
+          )}</td>
+          <td>${escapeHtml(
+            formatBackupDateTime(
+              item.lastSuccessfulBackupUtc
+            )
+          )}</td>
+          <td>${currentJobText}</td>
+          <td>${formatApproxDuration(
+            item
+          )}</td>
+          <td>${eligibleText}</td>
+        </tr>`;
+    }).join("");
+
+  backupPrecheckArea.hidden = false;
+  backupPrecheckArea.innerHTML = `
+    <div class="backup-precheck-banner ${bannerClass}">
+      <h3>${escapeHtml(
+        bannerTitle
+      )}</h3>
+      <p>${escapeHtml(
+        result.message ||
+        (
+          allEligible
+            ? "All entered VMs are protected and no active backup job was found."
+            : "Review the VM backup information below before continuing."
+        )
+      )}</p>
+    </div>
+
+    ${
+      items.length
+        ? `
+          <div class="table-wrap backup-precheck-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hostname</th>
+                  <th>Subscription</th>
+                  <th>Resource Group</th>
+                  <th>Protection</th>
+                  <th>Vault</th>
+                  <th>Policy</th>
+                  <th>Last backup status</th>
+                  <th>Last backup time</th>
+                  <th>Last successful backup</th>
+                  <th>Current backup job</th>
+                  <th>Approx. duration</th>
+                  <th>Backup Now</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`
+        : ""
+    }
+  `;
+
+  backupPrecheckPassed =
+    allEligible;
+
+  backupPrecheckFingerprint =
+    allEligible
+      ? getBackupHostnamesFingerprint()
+      : "";
+
+  backupActionFields.disabled =
+    !allEligible;
+
+  backupSubmitButton.disabled =
+    !allEligible;
+
+  backupSubmitButton.textContent =
+    allEligible
+      ? "Trigger Backup Now"
+      : "Backup Now unavailable";
+}
+
+async function checkBackupStatusBeforeSubmit() {
+  backupValidationMessage.textContent = "";
+  resetBackupPrecheck(true);
+
+  const hostnames =
+    parseHostnames(
+      backupHostnamesInput.value
+    );
+
+  if (hostnames.length < 1) {
+    backupValidationMessage.textContent =
+      "Enter at least one VM hostname.";
+    return;
+  }
+
+  if (
+    hostnames.length >
+    BACKUP_MAX_HOSTNAMES
+  ) {
+    backupValidationMessage.textContent =
+      `A maximum of ${BACKUP_MAX_HOSTNAMES} unique hostnames is allowed.`;
+    return;
+  }
+
+  backupCheckButton.disabled = true;
+  backupCheckButton.textContent =
+    "Checking Azure Backup…";
+
+  try {
+    const response =
+      await fetch(
+        "/api/checkBackupStatus",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept:
+              "application/json"
+          },
+          body: JSON.stringify({
+            hostnames
+          })
+        }
+      );
+
+    const text =
+      await response.text();
+
+    let result;
+
+    try {
+      result =
+        text
+          ? JSON.parse(text)
+          : {};
+    } catch {
+      result = {
+        success: false,
+        message:
+          text ||
+          "The status API returned an invalid response."
+      };
+    }
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/"
+      );
+      return;
+    }
+
+    if (!response.ok) {
+      backupPrecheckArea.hidden = false;
+      backupPrecheckArea.innerHTML = `
+        <div class="backup-precheck-banner error">
+          <h3>Backup status check failed</h3>
+          <p>${escapeHtml(
+            result.message ||
+            "Unable to check Azure Backup status."
+          )}</p>
+        </div>`;
+      return;
+    }
+
+    renderBackupPrecheck(result);
+  } catch (error) {
+    backupPrecheckArea.hidden = false;
+    backupPrecheckArea.innerHTML = `
+      <div class="backup-precheck-banner error">
+        <h3>Backup status check failed</h3>
+        <p>${escapeHtml(
+          `Unable to check Azure Backup status: ${error.message}`
+        )}</p>
+      </div>`;
+  } finally {
+    backupCheckButton.disabled =
+      !authenticatedPrincipal;
+
+    backupCheckButton.textContent =
+      authenticatedPrincipal
+        ? "Check Backup Status"
+        : "Authentication required";
+  }
+}
+
 function validateBackupForm(payload) {
   if (!authenticatedPrincipal) {
     return "Your authenticated identity is not available. Refresh the page.";
+  }
+
+  if (
+    !backupPrecheckPassed ||
+    backupPrecheckFingerprint !==
+      getBackupHostnamesFingerprint()
+  ) {
+    return "Check the current Azure Backup status before triggering Backup Now.";
   }
 
   if (payload.hostnames.length < 1) {
@@ -1222,7 +1623,7 @@ function buildBackupStatusTable(items) {
       const rowClass =
         item.status === "Completed"
           ? "badge-success"
-          : item.status === "NotProtected"
+          : ["NotProtected", "CompletedWithWarnings"].includes(item.status)
             ? "badge-warning"
             : "badge-error";
 
@@ -1773,7 +2174,15 @@ backupTabButton.addEventListener("click", () => {
 
 backupHostnamesInput.addEventListener(
   "input",
-  updateBackupHostnameCount
+  () => {
+    updateBackupHostnameCount();
+    resetBackupPrecheck(true);
+  }
+);
+
+backupCheckButton.addEventListener(
+  "click",
+  checkBackupStatusBeforeSubmit
 );
 
 backupClearButton.addEventListener("click", () => {
@@ -1782,6 +2191,7 @@ backupClearButton.addEventListener("click", () => {
   backupValidationMessage.textContent = "";
   backupResultArea.hidden = true;
   backupResultArea.innerHTML = "";
+  resetBackupPrecheck(true);
   updateBackupHostnameCount();
 });
 
@@ -1889,11 +2299,11 @@ backupForm.addEventListener("submit", async (event) => {
       0
     );
   } finally {
-    backupSubmitButton.disabled =
-      false;
+    resetBackupPrecheck(false);
 
+    backupSubmitButton.disabled = true;
     backupSubmitButton.textContent =
-      "Trigger Backup Now";
+      "Check backup status again";
   }
 });
 
@@ -2115,6 +2525,10 @@ loadAuthenticatedUser()
 
     snapshotSubmitButton.disabled = true;
     snapshotSubmitButton.textContent =
+      "Authentication required";
+
+    backupCheckButton.disabled = true;
+    backupCheckButton.textContent =
       "Authentication required";
 
     backupSubmitButton.disabled = true;

@@ -1,7 +1,7 @@
 {
     "properties": {
-        "roleName": "VM Backup Portal Operator",
-        "description": "Minimum runtime permissions for the VM Backup Logic App to discover Azure VMs, check Azure Backup protection, read protected-item details, trigger Backup Now, read the trigger-operation status, and poll the actual Azure Backup job until it reaches a terminal state. It cannot enable/disable backup, change policies, restore data, cancel/retry jobs, or delete backups.",
+        "roleName": "VM Backup Status Reader",
+        "description": "Read-only runtime permissions for the VM Backup Status Logic App. Allows VM discovery, Azure Backup protection checks, protected-item details, and backup job reads. Does not allow Backup Now, policy changes, restore, cancel/retry, VM modification, or deletion.",
         "assignableScopes": [
             "/subscriptions/<TARGET-SUBSCRIPTION-ID>"
         ],
@@ -14,15 +14,16 @@
                     "Microsoft.RecoveryServices/Locations/backupStatus/action",
                     "Microsoft.RecoveryServices/Vaults/read",
                     "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/read",
-                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/backup/action",
-                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/operationsStatus/read",
                     "Microsoft.RecoveryServices/Vaults/backupJobs/read"
                 ],
                 "notActions": [
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/backup/action",
                     "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/write",
                     "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/delete",
                     "Microsoft.RecoveryServices/Vaults/backupPolicies/write",
                     "Microsoft.RecoveryServices/Vaults/backupPolicies/delete",
+                    "Microsoft.RecoveryServices/Vaults/backupJobs/cancel/action",
+                    "Microsoft.RecoveryServices/Vaults/backupJobs/retry/action",
                     "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/recoveryPoints/restore/action",
                     "Microsoft.Compute/virtualMachines/write",
                     "Microsoft.Compute/virtualMachines/delete",
