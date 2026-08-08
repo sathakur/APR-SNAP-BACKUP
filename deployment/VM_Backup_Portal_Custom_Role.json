@@ -1,0 +1,35 @@
+{
+    "properties": {
+        "roleName": "VM Backup Portal Operator",
+        "description": "Minimum runtime permissions for the VM Backup Logic App to discover Azure VMs, check Azure Backup protection, read protected-item backup status and recovery-point timestamps, trigger Backup Now, and poll the protected-item operation status. It cannot enable/disable backup, change policies, restore data, or delete backups.",
+        "assignableScopes": [
+            "/subscriptions/<TARGET-SUBSCRIPTION-ID>"
+        ],
+        "permissions": [
+            {
+                "actions": [
+                    "Microsoft.ResourceGraph/resources/read",
+                    "Microsoft.Compute/virtualMachines/read",
+                    "Microsoft.Resources/subscriptions/read",
+                    "Microsoft.RecoveryServices/Locations/backupStatus/action",
+                    "Microsoft.RecoveryServices/Vaults/read",
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/read",
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/backup/action",
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/operationsStatus/read"
+                ],
+                "notActions": [
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/write",
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/delete",
+                    "Microsoft.RecoveryServices/Vaults/backupPolicies/write",
+                    "Microsoft.RecoveryServices/Vaults/backupPolicies/delete",
+                    "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/recoveryPoints/restore/action",
+                    "Microsoft.Compute/virtualMachines/write",
+                    "Microsoft.Compute/virtualMachines/delete",
+                    "Microsoft.Authorization/roleAssignments/write"
+                ],
+                "dataActions": [],
+                "notDataActions": []
+            }
+        ]
+    }
+}

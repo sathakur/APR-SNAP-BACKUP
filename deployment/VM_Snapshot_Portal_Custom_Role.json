@@ -1,0 +1,35 @@
+{
+    "properties": {
+        "roleName": "VM Snapshot Portal Operator",
+        "description": "Minimum runtime permissions for the standalone VM Snapshot Logic App. Allows VM discovery, managed-disk reads, automatic snapshot resource-group creation and snapshot creation. Does not allow VM, disk, snapshot or resource-group deletion.",
+        "assignableScopes": [
+            "/subscriptions/<TARGET-SUBSCRIPTION-ID>"
+        ],
+        "permissions": [
+            {
+                "actions": [
+                    "Microsoft.ResourceGraph/resources/read",
+                    "Microsoft.Compute/virtualMachines/read",
+                    "Microsoft.Compute/disks/read",
+                    "Microsoft.Compute/snapshots/read",
+                    "Microsoft.Compute/snapshots/write",
+                    "Microsoft.Resources/subscriptions/read",
+                    "Microsoft.Resources/subscriptions/resourceGroups/read",
+                    "Microsoft.Resources/subscriptions/resourceGroups/write"
+                ],
+                "notActions": [
+                    "Microsoft.Compute/virtualMachines/write",
+                    "Microsoft.Compute/virtualMachines/delete",
+                    "Microsoft.Compute/disks/write",
+                    "Microsoft.Compute/disks/delete",
+                    "Microsoft.Compute/snapshots/delete",
+                    "Microsoft.Resources/subscriptions/resourceGroups/delete",
+                    "Microsoft.Authorization/roleAssignments/write",
+                    "Microsoft.Authorization/roleDefinitions/write"
+                ],
+                "dataActions": [],
+                "notDataActions": []
+            }
+        ]
+    }
+}

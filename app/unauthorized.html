@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Access denied</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #172033;
+      background: #f4f6f9;
+    }
+
+    body {
+      margin: 0;
+    }
+
+    main {
+      width: min(620px, calc(100% - 32px));
+      margin: 80px auto;
+      padding: 32px;
+      border: 1px solid #d7dee8;
+      border-radius: 10px;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(24, 39, 75, 0.06);
+    }
+
+    h1 {
+      margin-top: 0;
+      color: #9d1c1c;
+    }
+
+    p {
+      line-height: 1.55;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    a {
+      display: inline-block;
+      padding: 10px 14px;
+      border-radius: 5px;
+      background: #1769aa;
+      color: #ffffff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    a.secondary {
+      background: #e9edf2;
+      color: #172033;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Access denied</h1>
+
+    <p>
+      Your Microsoft Entra account is authenticated, but it is not authorised
+      to use the Alert Suppression Portal.
+    </p>
+
+    <p>
+      Contact the portal administrator if access is required.
+    </p>
+
+    <div class="actions">
+      <a href="/.auth/login/aad?post_login_redirect_uri=/">
+        Try another account
+      </a>
+
+      <a
+        class="secondary"
+        href="/.auth/logout?post_logout_redirect_uri=/">
+        Sign out
+      </a>
+    </div>
+  </main>
+</body>
+</html>

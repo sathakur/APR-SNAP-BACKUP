@@ -1,0 +1,677 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "2.0.0.0",
+        "triggers": {
+            "When_an_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "hostnames": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "startDateTime": {
+                                "type": "string"
+                            },
+                            "endDateTime": {
+                                "type": "string"
+                            },
+                            "timeZone": {
+                                "type": "string"
+                            },
+                            "changeNumber": {
+                                "type": "string"
+                            },
+                            "reason": {
+                                "type": "string"
+                            },
+                            "requesterName": {
+                                "type": "string"
+                            },
+                            "requesterUserName": {
+                                "type": "string"
+                            },
+                            "requesterUserId": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Request_ID": {
+                "runAfter": {},
+                "type": "Compose",
+                "inputs": "@concat('SUP-',formatDateTime(utcNow(),'yyyyMMdd-HHmmss'),'-',substring(guid(),0,8))"
+            },
+            "Distinct_Hostnames": {
+                "runAfter": {
+                    "Request_ID": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": "@union(triggerBody()?['hostnames'],triggerBody()?['hostnames'])"
+            },
+            "Convert_Start_To_UTC": {
+                "runAfter": {
+                    "Distinct_Hostnames": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": "@convertToUtc(triggerBody()?['startDateTime'],triggerBody()?['timeZone'])"
+            },
+            "Convert_End_To_UTC": {
+                "runAfter": {
+                    "Convert_Start_To_UTC": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": "@convertToUtc(triggerBody()?['endDateTime'],triggerBody()?['timeZone'])"
+            },
+            "Initialize_Successful_Results": {
+                "runAfter": {
+                    "Convert_End_To_UTC": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "SuccessfulResults",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                }
+            },
+            "Initialize_Failed_Results": {
+                "runAfter": {
+                    "Initialize_Successful_Results": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "FailedResults",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                }
+            },
+            "Validate_Request": {
+                "actions": {
+                    "For_Each_Hostname": {
+                        "foreach": "@outputs('Distinct_Hostnames')",
+                        "actions": {
+                            "Normalize_Current_Hostname": {
+                                "type": "Compose",
+                                "inputs": "@toUpper(trim(first(split(string(items('For_Each_Hostname')),'.'))))"
+                            },
+                            "Current_Hostname_Is_Valid": {
+                                "actions": {
+                                    "Query_Azure_Resource_Graph": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2024-04-01",
+                                            "method": "POST",
+                                            "headers": {
+                                                "Content-Type": "application/json"
+                                            },
+                                            "body": {
+                                                "query": "@concat('Resources | where type =~ ''microsoft.compute/virtualmachines'' | extend OSHostName=tostring(properties.osProfile.computerName) | extend ShortOSHostName=tostring(split(OSHostName,''.'')[0]) | where toupper(name) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(OSHostName) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(ShortOSHostName) == ''',outputs('Normalize_Current_Hostname'),''' | join kind=leftouter (ResourceContainers | where type =~ ''microsoft.resources/subscriptions'' | project subscriptionId, SubscriptionName=name) on subscriptionId | project Hostname=OSHostName, VMName=name, SubscriptionId=subscriptionId, SubscriptionName, ResourceGroup=resourceGroup, Location=location, ResourceId=id, OSType=tostring(properties.storageProfile.osDisk.osType), Tags=tags')",
+                                                "options": {
+                                                    "resultFormat": "objectArray"
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ManagedServiceIdentity",
+                                                "audience": "https://management.azure.com/"
+                                            },
+                                            "retryPolicy": {
+                                                "type": "exponential",
+                                                "count": 3,
+                                                "interval": "PT5S",
+                                                "minimumInterval": "PT5S",
+                                                "maximumInterval": "PT30S"
+                                            }
+                                        }
+                                    },
+                                    "Exactly_One_VM_Found": {
+                                        "actions": {
+                                            "VM_Record": {
+                                                "type": "Compose",
+                                                "inputs": "@first(body('Query_Azure_Resource_Graph')?['data'])"
+                                            },
+                                            "Rule_Name": {
+                                                "runAfter": {
+                                                    "VM_Record": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Compose",
+                                                "inputs": "@concat('APR-',replace(replace(replace(toUpper(trim(triggerBody()?['changeNumber'])),' ','-'),'/','-'),'_','-'),'-',outputs('Normalize_Current_Hostname'),'-',outputs('Request_ID'))"
+                                            },
+                                            "Ensure_APR_Resource_Group": {
+                                                "runAfter": {
+                                                    "Rule_Name": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Http",
+                                                "inputs": {
+                                                    "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('alertProcessingRuleResourceGroup'),'?api-version=2021-04-01')",
+                                                    "method": "PUT",
+                                                    "headers": {
+                                                        "Content-Type": "application/json"
+                                                    },
+                                                    "body": {
+                                                        "location": "@parameters('alertProcessingRuleResourceGroupLocation')",
+                                                        "tags": {
+                                                            "ManagedBy": "AlertSuppressionPortal",
+                                                            "Purpose": "AlertProcessingRules"
+                                                        }
+                                                    },
+                                                    "authentication": {
+                                                        "type": "ManagedServiceIdentity",
+                                                        "audience": "https://management.azure.com/"
+                                                    },
+                                                    "retryPolicy": {
+                                                        "type": "exponential",
+                                                        "count": 3,
+                                                        "interval": "PT5S",
+                                                        "minimumInterval": "PT5S",
+                                                        "maximumInterval": "PT30S"
+                                                    }
+                                                }
+                                            },
+                                            "Create_Alert_Processing_Rule": {
+                                                "runAfter": {
+                                                    "Ensure_APR_Resource_Group": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Http",
+                                                "inputs": {
+                                                    "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('alertProcessingRuleResourceGroup'),'/providers/Microsoft.AlertsManagement/actionRules/',outputs('Rule_Name'),'?api-version=2021-08-08')",
+                                                    "method": "PUT",
+                                                    "headers": {
+                                                        "Content-Type": "application/json"
+                                                    },
+                                                    "body": {
+                                                        "location": "Global",
+                                                        "tags": {
+                                                            "ManagedBy": "LogicApp",
+                                                            "RequestId": "@outputs('Request_ID')",
+                                                            "RequestedBy": "@triggerBody()?['requesterUserName']",
+                                                            "RequesterName": "@coalesce(triggerBody()?['requesterName'],triggerBody()?['requesterUserName'])",
+                                                            "ChangeNumber": "@triggerBody()?['changeNumber']",
+                                                            "Hostname": "@outputs('Normalize_Current_Hostname')"
+                                                        },
+                                                        "properties": {
+                                                            "description": "@concat('Wintel maintenance suppression. Request ',outputs('Request_ID'),'. Change ',triggerBody()?['changeNumber'],'. Requested by ',triggerBody()?['requesterUserName'],'. Reason: ',triggerBody()?['reason'])",
+                                                            "enabled": true,
+                                                            "scopes": [
+                                                                "@outputs('VM_Record')?['ResourceId']"
+                                                            ],
+                                                            "actions": [
+                                                                {
+                                                                    "actionType": "RemoveAllActionGroups"
+                                                                }
+                                                            ],
+                                                            "schedule": {
+                                                                "effectiveFrom": "@formatDateTime(outputs('Convert_Start_To_UTC'),'yyyy-MM-ddTHH:mm:ss')",
+                                                                "effectiveUntil": "@formatDateTime(outputs('Convert_End_To_UTC'),'yyyy-MM-ddTHH:mm:ss')",
+                                                                "timeZone": "UTC"
+                                                            }
+                                                        }
+                                                    },
+                                                    "authentication": {
+                                                        "type": "ManagedServiceIdentity",
+                                                        "audience": "https://management.azure.com/"
+                                                    },
+                                                    "retryPolicy": {
+                                                        "type": "exponential",
+                                                        "count": 3,
+                                                        "interval": "PT5S",
+                                                        "minimumInterval": "PT5S",
+                                                        "maximumInterval": "PT30S"
+                                                    }
+                                                }
+                                            },
+                                            "Append_Resource_Group_Failure": {
+                                                "runAfter": {
+                                                    "Ensure_APR_Resource_Group": [
+                                                        "Failed",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "type": "AppendToArrayVariable",
+                                                "inputs": {
+                                                    "name": "FailedResults",
+                                                    "value": {
+                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                        "status": "Failed",
+                                                        "failureStage": "EnsureAPRResourceGroup",
+                                                        "vmName": "@outputs('VM_Record')?['VMName']",
+                                                        "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                        "subscriptionId": "@outputs('VM_Record')?['SubscriptionId']",
+                                                        "resourceGroup": "@parameters('alertProcessingRuleResourceGroup')",
+                                                        "httpStatus": "@outputs('Ensure_APR_Resource_Group')?['statusCode']",
+                                                        "details": "@outputs('Ensure_APR_Resource_Group')?['body']"
+                                                    }
+                                                }
+                                            },
+                                            "Append_Successful_Result": {
+                                                "runAfter": {
+                                                    "Create_Alert_Processing_Rule": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "AppendToArrayVariable",
+                                                "inputs": {
+                                                    "name": "SuccessfulResults",
+                                                    "value": {
+                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                        "status": "Created",
+                                                        "vmName": "@outputs('VM_Record')?['VMName']",
+                                                        "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                        "subscriptionId": "@outputs('VM_Record')?['SubscriptionId']",
+                                                        "resourceGroup": "@outputs('VM_Record')?['ResourceGroup']",
+                                                        "resourceId": "@outputs('VM_Record')?['ResourceId']",
+                                                        "ruleName": "@outputs('Rule_Name')",
+                                                        "ruleId": "@body('Create_Alert_Processing_Rule')?['id']"
+                                                    }
+                                                }
+                                            },
+                                            "Append_Create_Failure": {
+                                                "runAfter": {
+                                                    "Create_Alert_Processing_Rule": [
+                                                        "Failed",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "type": "AppendToArrayVariable",
+                                                "inputs": {
+                                                    "name": "FailedResults",
+                                                    "value": {
+                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                        "status": "Failed",
+                                                        "failureStage": "CreateAlertProcessingRule",
+                                                        "vmName": "@outputs('VM_Record')?['VMName']",
+                                                        "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                        "resourceGroup": "@outputs('VM_Record')?['ResourceGroup']",
+                                                        "httpStatus": "@outputs('Create_Alert_Processing_Rule')?['statusCode']",
+                                                        "details": "@outputs('Create_Alert_Processing_Rule')?['body']"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "runAfter": {
+                                            "Query_Azure_Resource_Graph": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "else": {
+                                            "actions": {
+                                                "No_VM_Found": {
+                                                    "actions": {
+                                                        "Append_Not_Found": {
+                                                            "type": "AppendToArrayVariable",
+                                                            "inputs": {
+                                                                "name": "FailedResults",
+                                                                "value": {
+                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                    "status": "NotFound",
+                                                                    "failureStage": "DiscoverVM",
+                                                                    "message": "No matching Azure VM was found in Azure Resource Graph."
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "else": {
+                                                        "actions": {
+                                                            "Append_Multiple_Matches": {
+                                                                "type": "AppendToArrayVariable",
+                                                                "inputs": {
+                                                                    "name": "FailedResults",
+                                                                    "value": {
+                                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                        "status": "MultipleMatches",
+                                                                        "failureStage": "DiscoverVM",
+                                                                        "matchCount": "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                                        "matches": "@body('Query_Azure_Resource_Graph')?['data']",
+                                                                        "message": "Multiple Azure VMs matched this hostname. Contact the portal administrator with the target subscription details."
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "expression": {
+                                                        "equals": [
+                                                            "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                            0
+                                                        ]
+                                                    },
+                                                    "type": "If"
+                                                }
+                                            }
+                                        },
+                                        "expression": {
+                                            "equals": [
+                                                "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                1
+                                            ]
+                                        },
+                                        "type": "If"
+                                    },
+                                    "Append_ARG_Query_Failure": {
+                                        "runAfter": {
+                                            "Query_Azure_Resource_Graph": [
+                                                "Failed",
+                                                "TimedOut"
+                                            ]
+                                        },
+                                        "type": "AppendToArrayVariable",
+                                        "inputs": {
+                                            "name": "FailedResults",
+                                            "value": {
+                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                "status": "Failed",
+                                                "failureStage": "AzureResourceGraph",
+                                                "httpStatus": "@outputs('Query_Azure_Resource_Graph')?['statusCode']",
+                                                "details": "@outputs('Query_Azure_Resource_Graph')?['body']"
+                                            }
+                                        }
+                                    }
+                                },
+                                "runAfter": {
+                                    "Normalize_Current_Hostname": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "else": {
+                                    "actions": {
+                                        "Append_Invalid_Hostname": {
+                                            "type": "AppendToArrayVariable",
+                                            "inputs": {
+                                                "name": "FailedResults",
+                                                "value": {
+                                                    "hostnameSubmitted": "@string(items('For_Each_Hostname'))",
+                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                    "status": "InvalidHostname",
+                                                    "failureStage": "ValidateHostname",
+                                                    "message": "Hostname is blank or longer than 63 characters."
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "expression": {
+                                    "and": [
+                                        {
+                                            "not": {
+                                                "equals": [
+                                                    "@outputs('Normalize_Current_Hostname')",
+                                                    ""
+                                                ]
+                                            }
+                                        },
+                                        {
+                                            "lessOrEquals": [
+                                                "@length(outputs('Normalize_Current_Hostname'))",
+                                                63
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "type": "If"
+                            }
+                        },
+                        "type": "Foreach",
+                        "operationOptions": "Sequential"
+                    },
+                    "Response_Multi_VM_Result": {
+                        "runAfter": {
+                            "For_Each_Hostname": [
+                                "Succeeded",
+                                "Failed",
+                                "TimedOut"
+                            ]
+                        },
+                        "type": "Response",
+                        "kind": "Http",
+                        "inputs": {
+                            "statusCode": "@if(equals(length(variables('FailedResults')),0),200,if(equals(length(variables('SuccessfulResults')),0),400,207))",
+                            "headers": {
+                                "Content-Type": "application/json"
+                            },
+                            "body": {
+                                "success": "@equals(length(variables('FailedResults')),0)",
+                                "status": "@if(equals(length(variables('FailedResults')),0),'Created',if(equals(length(variables('SuccessfulResults')),0),'Failed','PartiallyCreated'))",
+                                "requestId": "@outputs('Request_ID')",
+                                "requestedBy": "@triggerBody()?['requesterUserName']",
+                                "submittedCount": "@length(triggerBody()?['hostnames'])",
+                                "uniqueCount": "@length(outputs('Distinct_Hostnames'))",
+                                "successCount": "@length(variables('SuccessfulResults'))",
+                                "failureCount": "@length(variables('FailedResults'))",
+                                "startUtc": "@outputs('Convert_Start_To_UTC')",
+                                "endUtc": "@outputs('Convert_End_To_UTC')",
+                                "successfulResults": "@variables('SuccessfulResults')",
+                                "failedResults": "@variables('FailedResults')",
+                                "message": "One alert processing rule is created per successfully resolved VM."
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Initialize_Failed_Results": [
+                        "Succeeded"
+                    ]
+                },
+                "else": {
+                    "actions": {
+                        "Response_Invalid_Request": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 400,
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "success": false,
+                                    "status": "InvalidRequest",
+                                    "requestId": "@outputs('Request_ID')",
+                                    "message": "Provide 1 to 20 hostnames, a valid authenticated requester identity, Central European Time, change number, reason, valid dates, at least 45 minutes lead time, and a maximum 24-hour duration.",
+                                    "submittedCount": "@length(triggerBody()?['hostnames'])",
+                                    "uniqueCount": "@length(outputs('Distinct_Hostnames'))",
+                                    "startUtc": "@outputs('Convert_Start_To_UTC')",
+                                    "endUtc": "@outputs('Convert_End_To_UTC')"
+                                }
+                            }
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "greaterOrEquals": [
+                                "@length(outputs('Distinct_Hostnames'))",
+                                1
+                            ]
+                        },
+                        {
+                            "lessOrEquals": [
+                                "@length(outputs('Distinct_Hostnames'))",
+                                "@parameters('maximumHostnames')"
+                            ]
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['changeNumber'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['reason'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['requesterUserId'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['requesterUserName'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "equals": [
+                                "@triggerBody()?['timeZone']",
+                                "W. Europe Standard Time"
+                            ]
+                        },
+                        {
+                            "greater": [
+                                "@ticks(outputs('Convert_End_To_UTC'))",
+                                "@ticks(outputs('Convert_Start_To_UTC'))"
+                            ]
+                        },
+                        {
+                            "greaterOrEquals": [
+                                "@ticks(outputs('Convert_Start_To_UTC'))",
+                                "@ticks(addMinutes(utcNow(),parameters('minimumLeadMinutes')))"
+                            ]
+                        },
+                        {
+                            "lessOrEquals": [
+                                "@ticks(outputs('Convert_End_To_UTC'))",
+                                "@ticks(addHours(outputs('Convert_Start_To_UTC'),parameters('maximumDurationHours')))"
+                            ]
+                        }
+                    ]
+                },
+                "type": "If"
+            },
+            "Response_Start_Date_Conversion_Failed": {
+                "runAfter": {
+                    "Convert_Start_To_UTC": [
+                        "Failed",
+                        "TimedOut"
+                    ]
+                },
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 400,
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "body": {
+                        "success": false,
+                        "status": "InvalidStartDateOrTimeZone",
+                        "requestId": "@outputs('Request_ID')",
+                        "message": "The start date/time or Windows time-zone name is invalid."
+                    }
+                }
+            },
+            "Response_End_Date_Conversion_Failed": {
+                "runAfter": {
+                    "Convert_End_To_UTC": [
+                        "Failed",
+                        "TimedOut"
+                    ]
+                },
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 400,
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "body": {
+                        "success": false,
+                        "status": "InvalidEndDateOrTimeZone",
+                        "requestId": "@outputs('Request_ID')",
+                        "message": "The end date/time or Windows time-zone name is invalid."
+                    }
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "alertProcessingRuleResourceGroup": {
+                "defaultValue": "rg-monitor-alert-processing",
+                "type": "String"
+            },
+            "minimumLeadMinutes": {
+                "defaultValue": 45,
+                "type": "Int"
+            },
+            "maximumDurationHours": {
+                "defaultValue": 24,
+                "type": "Int"
+            },
+            "maximumHostnames": {
+                "defaultValue": 20,
+                "type": "Int"
+            },
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            },
+            "alertProcessingRuleResourceGroupLocation": {
+                "defaultValue": "westeurope",
+                "type": "String"
+            }
+        }
+    },
+    "parameters": {
+        "alertProcessingRuleResourceGroup": {
+            "value": "rg-monitor-alert-processing"
+        },
+        "minimumLeadMinutes": {
+            "value": 45
+        },
+        "maximumDurationHours": {
+            "value": 24
+        },
+        "maximumHostnames": {
+            "value": 20
+        },
+        "$connections": {
+            "type": "Object",
+            "value": {}
+        },
+        "alertProcessingRuleResourceGroupLocation": {
+            "value": "westeurope"
+        }
+    }
+}

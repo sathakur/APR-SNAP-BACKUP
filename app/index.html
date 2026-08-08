@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure VM Operations Portal</title>
+  <link rel="stylesheet" href="/styles.css?v=20260808-vm-backup-1">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Azure VM Operations Portal</h1>
+      <p>Authenticated self-service for Azure VM alert suppression, managed-disk snapshots, and on-demand backup operations.</p>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="card shared-header-card">
+      <section class="request-hero" aria-labelledby="requestHeroTitle">
+        <div class="request-hero-accent" aria-hidden="true"></div>
+        <div class="request-hero-content">
+          <span class="request-hero-eyebrow">Azure Infrastructure Operations</span>
+          <h2 id="requestHeroTitle">Azure VM Operations Portal</h2>
+          <p>
+            Submit authenticated Azure VM alert suppression, managed-disk snapshot,
+            and on-demand backup requests from one secure operations portal.
+          </p>
+        </div>
+      </section>
+
+      <section class="identity-panel" aria-labelledby="identityHeading">
+        <div class="identity-icon" aria-hidden="true">✓</div>
+
+        <div class="identity-details">
+          <span id="identityHeading" class="identity-label">
+            Authenticated requester
+          </span>
+          <strong id="authenticatedUserName">Loading your identity…</strong>
+          <span id="authenticatedProvider" class="identity-provider">
+            Microsoft Entra ID
+          </span>
+        </div>
+
+        <div class="identity-actions">
+          <span id="identityStatus" class="identity-status">Verifying</span>
+          <a
+            class="sign-out-link"
+            href="/.auth/logout?post_logout_redirect_uri=/signed-out.html">
+            Sign out
+          </a>
+        </div>
+      </section>
+
+      <nav class="operation-tabs" role="tablist" aria-label="Azure operations">
+        <button
+          id="suppressionTabButton"
+          class="operation-tab active"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="suppressionPanel"
+          data-tab="suppression">
+          Alert Suppression
+        </button>
+
+        <button
+          id="snapshotTabButton"
+          class="operation-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="snapshotPanel"
+          data-tab="snapshot">
+          VM Snapshot
+        </button>
+
+        <button
+          id="backupTabButton"
+          class="operation-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="backupPanel"
+          data-tab="backup">
+          VM Backup
+        </button>
+      </nav>
+    </section>
+
+    <section id="suppressionPanel" class="operation-panel" role="tabpanel"
+      aria-labelledby="suppressionTabButton">
+      <section class="card">
+        <section class="requirements-panel" aria-labelledby="requirementsHeading">
+          <div class="requirements-heading">
+            <div>
+              <span class="requirements-label">Before you submit</span>
+              <h2 id="requirementsHeading">Alert suppression requirements</h2>
+            </div>
+            <span class="requirements-status">3 checks</span>
+          </div>
+
+          <div class="requirements-grid">
+            <article class="requirement-card">
+              <div class="requirement-number">01</div>
+              <div>
+                <h3>VM scope</h3>
+                <p>Enter between 1 and 20 unique VM hostnames.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">02</div>
+              <div>
+                <h3>Minimum lead time</h3>
+                <p>Schedule the start time at least 45 minutes in advance.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">03</div>
+              <div>
+                <h3>Maximum duration</h3>
+                <p>The suppression window must not exceed 24 hours.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <form id="suppressionForm" novalidate>
+          <h2>Suppression request</h2>
+
+          <div class="field full">
+            <label for="hostnames">VM hostnames *</label>
+            <textarea
+              id="hostnames"
+              rows="8"
+              maxlength="5000"
+              placeholder="WINVM001&#10;WINVM002&#10;WINVM003"
+              required></textarea>
+            <div class="field-help">
+              Enter one hostname per line, or separate values with commas or
+              semicolons. Maximum 20 unique hostnames.
+            </div>
+            <div id="hostnameCount" class="counter">0 / 20</div>
+          </div>
+
+          <div class="grid">
+            <div class="field">
+              <label for="startDateTime">Start date and time *</label>
+              <input id="startDateTime" type="datetime-local" required>
+            </div>
+
+            <div class="field">
+              <label for="endDateTime">End date and time *</label>
+              <input id="endDateTime" type="datetime-local" required>
+            </div>
+
+            <div class="field">
+              <label for="timeZone">Time zone *</label>
+              <select id="timeZone" required>
+                <option value="W. Europe Standard Time" selected>
+                  Central European Time (CET/CEST)
+                </option>
+              </select>
+              <div class="field-help">
+                Daylight-saving changes are handled automatically.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="changeNumber">Change / incident number *</label>
+              <input
+                id="changeNumber"
+                type="text"
+                maxlength="80"
+                placeholder="CHG0012345"
+                required>
+            </div>
+
+            <div class="field full-grid">
+              <label for="reason">Reason *</label>
+              <textarea
+                id="reason"
+                rows="3"
+                maxlength="500"
+                placeholder="Monthly Windows patching"
+                required></textarea>
+            </div>
+          </div>
+
+          <div id="validationMessage" class="validation-message" role="alert"></div>
+
+          <div class="actions">
+            <button id="submitButton" type="submit" disabled>
+              Verifying identity…
+            </button>
+            <button id="clearButton" type="button" class="secondary">
+              Clear
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section
+        id="resultArea"
+        class="card result-card"
+        hidden
+        aria-live="polite"></section>
+    </section>
+
+    <section id="snapshotPanel" class="operation-panel" role="tabpanel"
+      aria-labelledby="snapshotTabButton" hidden>
+      <section class="card">
+        <section class="requirements-panel" aria-labelledby="snapshotRequirementsHeading">
+          <div class="requirements-heading">
+            <div>
+              <span class="requirements-label">Before you submit</span>
+              <h2 id="snapshotRequirementsHeading">VM snapshot requirements</h2>
+            </div>
+            <span class="requirements-status">4 checks</span>
+          </div>
+
+          <div class="requirements-grid snapshot-requirements-grid">
+            <article class="requirement-card">
+              <div class="requirement-number">01</div>
+              <div>
+                <h3>Managed disks</h3>
+                <p>The VM OS disk and selected data disks must be Azure managed disks.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">02</div>
+              <div>
+                <h3>Snapshot scope</h3>
+                <p>Select the OS disk only or the OS disk and all attached data disks.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">03</div>
+              <div>
+                <h3>VM request limit</h3>
+                <p>A single snapshot request can contain a maximum of 5 unique VM hostnames.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">04</div>
+              <div>
+                <h3>User request quota</h3>
+                <p>Each authenticated user can submit up to 3 snapshot requests in any rolling 24-hour period.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <div class="information-note" role="note">
+          <strong>Important:</strong>
+          Snapshots created while a VM is running are managed-disk snapshots and
+          should be treated as crash-consistent. VM memory is not captured.
+        </div>
+
+        <form id="snapshotForm" novalidate>
+          <h2>VM snapshot request</h2>
+
+          <div class="field full">
+            <label for="snapshotHostnames">VM hostnames *</label>
+            <textarea
+              id="snapshotHostnames"
+              rows="8"
+              maxlength="5000"
+              placeholder="WINVM001&#10;WINVM002&#10;WINVM003"
+              required></textarea>
+            <div class="field-help">
+              Enter one hostname per line, or separate values with commas or
+              semicolons. Maximum 5 unique hostnames per snapshot request.
+            </div>
+            <div id="snapshotHostnameCount" class="counter">0 / 5</div>
+            <div class="field-help quota-help">
+              Snapshot quota: maximum 3 requests per authenticated user in any rolling 24-hour period.
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="field">
+              <label for="snapshotScope">Snapshot scope *</label>
+              <select id="snapshotScope" required>
+                <option value="OSOnly">OS disk only</option>
+                <option value="AllDisks" selected>OS disk and all data disks</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="snapshotRetentionDays">Retention period *</label>
+              <select id="snapshotRetentionDays" required>
+                <option value="1">1 day</option>
+                <option value="3" selected>3 days</option>
+                <option value="7">7 days</option>
+                <option value="14">14 days</option>
+                              </select>
+              <div class="field-help">
+                The calculated expiry is stored on each snapshot as an ExpiresUtc tag.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="snapshotExpiryDate">Calculated expiry date</label>
+              <input
+                id="snapshotExpiryDate"
+                type="text"
+                readonly
+                aria-readonly="true">
+              <div class="field-help">
+                Preview shown in CET/CEST. The Azure tag is stored in UTC.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="snapshotChangeNumber">Change / incident number *</label>
+              <input
+                id="snapshotChangeNumber"
+                type="text"
+                maxlength="40"
+                pattern="[A-Za-z0-9._-]{1,40}"
+                placeholder="CHG0012345"
+                required>
+              <div class="field-help">
+                Use letters, numbers, full stops, underscores or hyphens.
+              </div>
+            </div>
+
+            <div class="field full-grid">
+              <label for="snapshotReason">Reason *</label>
+              <textarea
+                id="snapshotReason"
+                rows="3"
+                maxlength="500"
+                placeholder="Pre-maintenance recovery point"
+                required></textarea>
+            </div>
+          </div>
+
+          <div id="snapshotValidationMessage"
+            class="validation-message" role="alert"></div>
+
+          <div class="actions">
+            <button id="snapshotSubmitButton" type="submit" disabled>
+              Verifying identity…
+            </button>
+            <button id="snapshotClearButton" type="button" class="secondary">
+              Clear
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section
+        id="snapshotResultArea"
+        class="card result-card"
+        hidden
+        aria-live="polite"></section>
+    </section>
+    <section id="backupPanel" class="operation-panel" role="tabpanel"
+      aria-labelledby="backupTabButton" hidden>
+      <section class="card">
+        <section class="requirements-panel" aria-labelledby="backupRequirementsHeading">
+          <div class="requirements-heading">
+            <div>
+              <span class="requirements-label">Before you submit</span>
+              <h2 id="backupRequirementsHeading">VM backup requirements</h2>
+            </div>
+            <span class="requirements-status">3 checks</span>
+          </div>
+
+          <div class="requirements-grid">
+            <article class="requirement-card">
+              <div class="requirement-number">01</div>
+              <div>
+                <h3>Already protected</h3>
+                <p>Only Azure VMs already protected by Azure Backup are eligible for Backup Now.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">02</div>
+              <div>
+                <h3>VM request limit</h3>
+                <p>A single backup request can contain a maximum of 5 unique VM hostnames.</p>
+              </div>
+            </article>
+
+            <article class="requirement-card">
+              <div class="requirement-number">03</div>
+              <div>
+                <h3>User request quota</h3>
+                <p>Each authenticated user can submit up to 3 backup requests in any rolling 24-hour period.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <div class="information-note" role="note">
+          <strong>Backup Now:</strong>
+          This operation does not enable or change Azure Backup protection.
+          VMs that are not already protected are reported as Not Protected.
+          The result includes the Azure Backup status and the most recent successful recovery point.
+        </div>
+
+        <form id="backupForm" novalidate>
+          <h2>VM backup request</h2>
+
+          <div class="field full">
+            <label for="backupHostnames">VM hostnames *</label>
+            <textarea
+              id="backupHostnames"
+              rows="8"
+              maxlength="5000"
+              placeholder="WINVM001&#10;WINVM002&#10;WINVM003"
+              required></textarea>
+            <div class="field-help">
+              Enter one hostname per line, or separate values with commas or semicolons.
+              Maximum 5 unique hostnames per backup request.
+            </div>
+            <div id="backupHostnameCount" class="counter">0 / 5</div>
+            <div class="field-help quota-help">
+              Backup quota: maximum 3 requests per authenticated user in any rolling 24-hour period.
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="field">
+              <label for="backupChangeNumber">Change / incident number *</label>
+              <input
+                id="backupChangeNumber"
+                type="text"
+                maxlength="40"
+                pattern="[A-Za-z0-9._-]{1,40}"
+                placeholder="CHG0012345"
+                required>
+              <div class="field-help">
+                Use letters, numbers, full stops, underscores or hyphens.
+              </div>
+            </div>
+
+            <div class="field full-grid">
+              <label for="backupReason">Reason *</label>
+              <textarea
+                id="backupReason"
+                rows="3"
+                maxlength="500"
+                placeholder="Pre-maintenance on-demand Azure Backup"
+                required></textarea>
+            </div>
+          </div>
+
+          <div id="backupValidationMessage"
+            class="validation-message" role="alert"></div>
+
+          <div class="actions">
+            <button id="backupSubmitButton" type="submit" disabled>
+              Verifying identity…
+            </button>
+            <button id="backupClearButton" type="button" class="secondary">
+              Clear
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section
+        id="backupResultArea"
+        class="card result-card"
+        hidden
+        aria-live="polite"></section>
+    </section>
+
+  </main>
+
+  <script src="/app.js?v=20260808-vm-backup-1"></script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signed out | Alert Suppression</title>
+  <style>
+    :root {
+      font-family: Arial, Helvetica, sans-serif;
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #f4f7fb;
+      color: #172033;
+      padding: 24px;
+    }
+
+    main {
+      width: min(560px, 100%);
+      background: #ffffff;
+      border: 1px solid #dbe3ef;
+      border-radius: 16px;
+      padding: 36px;
+      box-shadow: 0 18px 45px rgba(31, 49, 79, 0.10);
+      text-align: center;
+    }
+
+    .icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #eaf1ff;
+      color: #174ea6;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+    }
+
+    p {
+      margin: 0 0 24px;
+      color: #526078;
+      line-height: 1.6;
+    }
+
+    a {
+      display: inline-block;
+      border-radius: 8px;
+      padding: 12px 20px;
+      background: #174ea6;
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .note {
+      margin-top: 18px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="icon" aria-hidden="true">✓</div>
+    <h1>You have been signed out</h1>
+    <p>
+      Your portal session ended because you signed out or the website
+      was inactive for 1 hour.
+    </p>
+    <a href="/.auth/login/aad?post_login_redirect_uri=/">
+      Sign in again
+    </a>
+    <p class="note">
+      Close this browser window when using a shared computer.
+    </p>
+  </main>
+</body>
+</html>

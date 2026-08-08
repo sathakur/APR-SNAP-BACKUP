@@ -1,0 +1,1608 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "parameters": {
+            "snapshotResourceGroup": {
+                "defaultValue": "rg-vm-maintenance-snapshots",
+                "type": "String"
+            },
+            "snapshotResourceGroupLocation": {
+                "defaultValue": "westeurope",
+                "type": "String"
+            },
+            "maximumHostnames": {
+                "defaultValue": 5,
+                "type": "Int"
+            },
+            "resourceGraphApiVersion": {
+                "defaultValue": "2024-04-01",
+                "type": "String"
+            },
+            "resourceGroupApiVersion": {
+                "defaultValue": "2021-04-01",
+                "type": "String"
+            },
+            "computeApiVersion": {
+                "defaultValue": "2025-01-02",
+                "type": "String"
+            },
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        },
+        "triggers": {
+            "When_an_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "requestId",
+                            "hostnames",
+                            "snapshotScope",
+                            "expiresUtc",
+                            "retentionDays",
+                            "changeNumber",
+                            "reason",
+                            "requesterUserName",
+                            "requesterUserId",
+                            "statusBlobUrl"
+                        ],
+                        "properties": {
+                            "requestId": {
+                                "type": "string"
+                            },
+                            "submittedUtc": {
+                                "type": "string"
+                            },
+                            "hostnames": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "snapshotScope": {
+                                "type": "string"
+                            },
+                            "changeNumber": {
+                                "type": "string"
+                            },
+                            "reason": {
+                                "type": "string"
+                            },
+                            "requesterName": {
+                                "type": "string"
+                            },
+                            "requesterUserName": {
+                                "type": "string"
+                            },
+                            "requesterUserId": {
+                                "type": "string"
+                            },
+                            "retentionDays": {
+                                "type": "integer"
+                            },
+                            "expiresUtc": {
+                                "type": "string"
+                            },
+                            "statusBlobUrl": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Request_ID": {
+                "type": "Compose",
+                "inputs": "@toLower(triggerBody()?['requestId'])",
+                "runAfter": {}
+            },
+            "Distinct_Hostnames": {
+                "type": "Compose",
+                "inputs": "@union(triggerBody()?['hostnames'],triggerBody()?['hostnames'])",
+                "runAfter": {
+                    "Request_ID": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Validate_Request": {
+                "type": "If",
+                "runAfter": {
+                    "Write_Processing_Status": [
+                        "Succeeded",
+                        "Failed",
+                        "TimedOut"
+                    ]
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "greaterOrEquals": [
+                                "@length(outputs('Distinct_Hostnames'))",
+                                1
+                            ]
+                        },
+                        {
+                            "lessOrEquals": [
+                                "@length(outputs('Distinct_Hostnames'))",
+                                "@parameters('maximumHostnames')"
+                            ]
+                        },
+                        {
+                            "or": [
+                                {
+                                    "equals": [
+                                        "@triggerBody()?['snapshotScope']",
+                                        "OSOnly"
+                                    ]
+                                },
+                                {
+                                    "equals": [
+                                        "@triggerBody()?['snapshotScope']",
+                                        "AllDisks"
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "or": [
+                                {
+                                    "equals": [
+                                        "@triggerBody()?['retentionDays']",
+                                        1
+                                    ]
+                                },
+                                {
+                                    "equals": [
+                                        "@triggerBody()?['retentionDays']",
+                                        3
+                                    ]
+                                },
+                                {
+                                    "equals": [
+                                        "@triggerBody()?['retentionDays']",
+                                        7
+                                    ]
+                                },
+                                {
+                                    "equals": [
+                                        "@triggerBody()?['retentionDays']",
+                                        14
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['expiresUtc'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['statusBlobUrl'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['changeNumber'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['reason'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['requesterUserName'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['requesterUserId'],''))",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "not": {
+                                "equals": [
+                                    "@trim(coalesce(triggerBody()?['requestId'],''))",
+                                    ""
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "actions": {
+                    "For_Each_Hostname": {
+                        "type": "Foreach",
+                        "foreach": "@outputs('Distinct_Hostnames')",
+                        "runtimeConfiguration": {
+                            "concurrency": {
+                                "repetitions": 1
+                            }
+                        },
+                        "actions": {
+                            "Normalize_Current_Hostname": {
+                                "type": "Compose",
+                                "inputs": "@toUpper(trim(item()))"
+                            },
+                            "Current_Hostname_Is_Valid": {
+                                "type": "If",
+                                "runAfter": {
+                                    "Normalize_Current_Hostname": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "expression": {
+                                    "and": [
+                                        {
+                                            "not": {
+                                                "equals": [
+                                                    "@outputs('Normalize_Current_Hostname')",
+                                                    ""
+                                                ]
+                                            }
+                                        },
+                                        {
+                                            "lessOrEquals": [
+                                                "@length(outputs('Normalize_Current_Hostname'))",
+                                                253
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "actions": {
+                                    "Query_Azure_Resource_Graph": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "uri": "@concat('https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=',parameters('resourceGraphApiVersion'))",
+                                            "method": "POST",
+                                            "headers": {
+                                                "Content-Type": "application/json"
+                                            },
+                                            "body": {
+                                                "query": "@concat('Resources | where type =~ ''microsoft.compute/virtualmachines'' | extend OSHostName=tostring(properties.osProfile.computerName) | extend ShortOSHostName=tostring(split(OSHostName,''.'')[0]) | where toupper(name) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(OSHostName) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(ShortOSHostName) == ''',outputs('Normalize_Current_Hostname'),''' | join kind=leftouter (ResourceContainers | where type =~ ''microsoft.resources/subscriptions'' | project subscriptionId, SubscriptionName=name) on subscriptionId | project Hostname=OSHostName, VMName=name, SubscriptionId=subscriptionId, SubscriptionName, ResourceGroup=resourceGroup, Location=location, ResourceId=id, OSDiskId=tostring(properties.storageProfile.osDisk.managedDisk.id), DataDisks=properties.storageProfile.dataDisks')",
+                                                "options": {
+                                                    "resultFormat": "objectArray"
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ManagedServiceIdentity",
+                                                "audience": "https://management.azure.com/"
+                                            },
+                                            "retryPolicy": {
+                                                "type": "exponential",
+                                                "count": 3,
+                                                "interval": "PT5S",
+                                                "minimumInterval": "PT5S",
+                                                "maximumInterval": "PT30S"
+                                            }
+                                        }
+                                    },
+                                    "Exactly_One_VM_Found": {
+                                        "type": "If",
+                                        "runAfter": {
+                                            "Query_Azure_Resource_Graph": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "expression": {
+                                            "equals": [
+                                                "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                1
+                                            ]
+                                        },
+                                        "actions": {
+                                            "VM_Record": {
+                                                "type": "Compose",
+                                                "inputs": "@first(body('Query_Azure_Resource_Graph')?['data'])"
+                                            },
+                                            "Ensure_Snapshot_Resource_Group": {
+                                                "type": "Http",
+                                                "runAfter": {
+                                                    "VM_Record": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('snapshotResourceGroup'),'?api-version=',parameters('resourceGroupApiVersion'))",
+                                                    "method": "PUT",
+                                                    "headers": {
+                                                        "Content-Type": "application/json"
+                                                    },
+                                                    "body": {
+                                                        "location": "@parameters('snapshotResourceGroupLocation')",
+                                                        "tags": {
+                                                            "ManagedBy": "VMSnapshotPortal",
+                                                            "Purpose": "ManagedDiskSnapshots"
+                                                        }
+                                                    },
+                                                    "authentication": {
+                                                        "type": "ManagedServiceIdentity",
+                                                        "audience": "https://management.azure.com/"
+                                                    },
+                                                    "retryPolicy": {
+                                                        "type": "exponential",
+                                                        "count": 3,
+                                                        "interval": "PT5S",
+                                                        "minimumInterval": "PT5S",
+                                                        "maximumInterval": "PT30S"
+                                                    }
+                                                }
+                                            },
+                                            "OS_Disk_Is_Managed": {
+                                                "type": "If",
+                                                "runAfter": {
+                                                    "Ensure_Snapshot_Resource_Group": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "expression": {
+                                                    "not": {
+                                                        "equals": [
+                                                            "@trim(coalesce(outputs('VM_Record')?['OSDiskId'],''))",
+                                                            ""
+                                                        ]
+                                                    }
+                                                },
+                                                "actions": {
+                                                    "Get_OS_Disk": {
+                                                        "type": "Http",
+                                                        "inputs": {
+                                                            "uri": "@concat('https://management.azure.com',outputs('VM_Record')?['OSDiskId'],'?api-version=',parameters('computeApiVersion'))",
+                                                            "method": "GET",
+                                                            "authentication": {
+                                                                "type": "ManagedServiceIdentity",
+                                                                "audience": "https://management.azure.com/"
+                                                            },
+                                                            "retryPolicy": {
+                                                                "type": "exponential",
+                                                                "count": 3,
+                                                                "interval": "PT5S",
+                                                                "minimumInterval": "PT5S",
+                                                                "maximumInterval": "PT30S"
+                                                            }
+                                                        }
+                                                    },
+                                                    "OS_Disk_Read_Failed": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Get_OS_Disk": [
+                                                                "Failed",
+                                                                "TimedOut"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "requestId": "@outputs('Request_ID')",
+                                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                            "diskType": "OS",
+                                                            "status": "Failed",
+                                                            "failureStage": "ReadSourceDisk",
+                                                            "httpStatus": "@outputs('Get_OS_Disk')?['statusCode']",
+                                                            "details": "@outputs('Get_OS_Disk')?['body']"
+                                                        }
+                                                    },
+                                                    "Append_OS_Disk_Read_Failed_Result": {
+                                                        "type": "AppendToArrayVariable",
+                                                        "runAfter": {
+                                                            "OS_Disk_Read_Failed": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "name": "SnapshotResults",
+                                                            "value": "@outputs('OS_Disk_Read_Failed')"
+                                                        }
+                                                    },
+                                                    "Increment_OS_Disk_Read_Failure": {
+                                                        "type": "IncrementVariable",
+                                                        "runAfter": {
+                                                            "Append_OS_Disk_Read_Failed_Result": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "name": "SnapshotFailureCount",
+                                                            "value": 1
+                                                        }
+                                                    },
+                                                    "OS_Snapshot_Name": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Get_OS_Disk": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": "@take(concat('SNP-',toUpper(triggerBody()?['changeNumber']),'-',outputs('Normalize_Current_Hostname'),'-OS-',substring(outputs('Request_ID'),0,8)),80)"
+                                                    },
+                                                    "Create_OS_Snapshot": {
+                                                        "type": "Http",
+                                                        "runAfter": {
+                                                            "OS_Snapshot_Name": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('snapshotResourceGroup'),'/providers/Microsoft.Compute/snapshots/',outputs('OS_Snapshot_Name'),'?api-version=',parameters('computeApiVersion'))",
+                                                            "method": "PUT",
+                                                            "headers": {
+                                                                "Content-Type": "application/json"
+                                                            },
+                                                            "body": {
+                                                                "location": "@body('Get_OS_Disk')?['location']",
+                                                                "properties": {
+                                                                    "creationData": {
+                                                                        "createOption": "Copy",
+                                                                        "sourceResourceId": "@outputs('VM_Record')?['OSDiskId']"
+                                                                    }
+                                                                },
+                                                                "tags": {
+                                                                    "ManagedBy": "VMSnapshotPortal",
+                                                                    "RequestId": "@outputs('Request_ID')",
+                                                                    "RequestedBy": "@triggerBody()?['requesterUserName']",
+                                                                    "RequesterName": "@coalesce(triggerBody()?['requesterName'],triggerBody()?['requesterUserName'])",
+                                                                    "ChangeNumber": "@triggerBody()?['changeNumber']",
+                                                                    "Hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                    "VMName": "@outputs('VM_Record')?['VMName']",
+                                                                    "DiskType": "OS",
+                                                                    "SourceDiskName": "@body('Get_OS_Disk')?['name']",
+                                                                    "CreatedUtc": "@utcNow()",
+                                                                    "RetentionDays": "@string(triggerBody()?['retentionDays'])",
+                                                                    "ExpiresUtc": "@triggerBody()?['expiresUtc']"
+                                                                }
+                                                            },
+                                                            "authentication": {
+                                                                "type": "ManagedServiceIdentity",
+                                                                "audience": "https://management.azure.com/"
+                                                            },
+                                                            "retryPolicy": {
+                                                                "type": "exponential",
+                                                                "count": 3,
+                                                                "interval": "PT5S",
+                                                                "minimumInterval": "PT5S",
+                                                                "maximumInterval": "PT30S"
+                                                            }
+                                                        }
+                                                    },
+                                                    "OS_Create_Request_Failed": {
+                                                        "type": "Compose",
+                                                        "runAfter": {
+                                                            "Create_OS_Snapshot": [
+                                                                "Failed",
+                                                                "TimedOut"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "requestId": "@outputs('Request_ID')",
+                                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                            "diskType": "OS",
+                                                            "sourceDiskName": "@body('Get_OS_Disk')?['name']",
+                                                            "snapshotName": "@outputs('OS_Snapshot_Name')",
+                                                            "status": "Failed",
+                                                            "failureStage": "CreateSnapshot",
+                                                            "httpStatus": "@outputs('Create_OS_Snapshot')?['statusCode']",
+                                                            "details": "@outputs('Create_OS_Snapshot')?['body']"
+                                                        }
+                                                    },
+                                                    "Append_OS_Create_Request_Failed_Result": {
+                                                        "type": "AppendToArrayVariable",
+                                                        "runAfter": {
+                                                            "OS_Create_Request_Failed": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "name": "SnapshotResults",
+                                                            "value": "@outputs('OS_Create_Request_Failed')"
+                                                        }
+                                                    },
+                                                    "Increment_OS_Create_Request_Failure": {
+                                                        "type": "IncrementVariable",
+                                                        "runAfter": {
+                                                            "Append_OS_Create_Request_Failed_Result": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "inputs": {
+                                                            "name": "SnapshotFailureCount",
+                                                            "value": 1
+                                                        }
+                                                    },
+                                                    "Wait_For_OS_Snapshot_Provisioning": {
+                                                        "type": "Until",
+                                                        "runAfter": {
+                                                            "Create_OS_Snapshot": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "expression": "@or(equals(body('Get_OS_Snapshot_Status')?['properties']?['provisioningState'],'Succeeded'),equals(body('Get_OS_Snapshot_Status')?['properties']?['provisioningState'],'Failed'))",
+                                                        "limit": {
+                                                            "count": 60,
+                                                            "timeout": "PT10M"
+                                                        },
+                                                        "actions": {
+                                                            "Delay_OS_Snapshot_Status_Check": {
+                                                                "type": "Wait",
+                                                                "inputs": {
+                                                                    "interval": {
+                                                                        "count": 5,
+                                                                        "unit": "Second"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "Get_OS_Snapshot_Status": {
+                                                                "type": "Http",
+                                                                "runAfter": {
+                                                                    "Delay_OS_Snapshot_Status_Check": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "inputs": {
+                                                                    "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('snapshotResourceGroup'),'/providers/Microsoft.Compute/snapshots/',outputs('OS_Snapshot_Name'),'?api-version=',parameters('computeApiVersion'))",
+                                                                    "method": "GET",
+                                                                    "authentication": {
+                                                                        "type": "ManagedServiceIdentity",
+                                                                        "audience": "https://management.azure.com/"
+                                                                    },
+                                                                    "retryPolicy": {
+                                                                        "type": "exponential",
+                                                                        "count": 3,
+                                                                        "interval": "PT5S",
+                                                                        "minimumInterval": "PT5S",
+                                                                        "maximumInterval": "PT30S"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "OS_Provisioning_Succeeded": {
+                                                        "type": "If",
+                                                        "runAfter": {
+                                                            "Wait_For_OS_Snapshot_Provisioning": [
+                                                                "Succeeded",
+                                                                "Failed",
+                                                                "TimedOut"
+                                                            ]
+                                                        },
+                                                        "expression": {
+                                                            "equals": [
+                                                                "@body('Get_OS_Snapshot_Status')?['properties']?['provisioningState']",
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "actions": {
+                                                            "OS_Snapshot_Created": {
+                                                                "type": "Compose",
+                                                                "inputs": {
+                                                                    "requestId": "@outputs('Request_ID')",
+                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                    "diskType": "OS",
+                                                                    "sourceDiskName": "@body('Get_OS_Disk')?['name']",
+                                                                    "snapshotName": "@outputs('OS_Snapshot_Name')",
+                                                                    "snapshotId": "@body('Get_OS_Snapshot_Status')?['id']",
+                                                                    "status": "Created"
+                                                                }
+                                                            },
+                                                            "Append_OS_Snapshot_Created_Result": {
+                                                                "type": "AppendToArrayVariable",
+                                                                "runAfter": {
+                                                                    "OS_Snapshot_Created": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "inputs": {
+                                                                    "name": "SnapshotResults",
+                                                                    "value": "@outputs('OS_Snapshot_Created')"
+                                                                }
+                                                            },
+                                                            "Increment_OS_Snapshot_Success": {
+                                                                "type": "IncrementVariable",
+                                                                "runAfter": {
+                                                                    "Append_OS_Snapshot_Created_Result": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "inputs": {
+                                                                    "name": "SnapshotSuccessCount",
+                                                                    "value": 1
+                                                                }
+                                                            }
+                                                        },
+                                                        "else": {
+                                                            "actions": {
+                                                                "OS_Snapshot_Provisioning_Failed": {
+                                                                    "type": "Compose",
+                                                                    "inputs": {
+                                                                        "requestId": "@outputs('Request_ID')",
+                                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                        "diskType": "OS",
+                                                                        "sourceDiskName": "@body('Get_OS_Disk')?['name']",
+                                                                        "snapshotName": "@outputs('OS_Snapshot_Name')",
+                                                                        "status": "Failed",
+                                                                        "failureStage": "SnapshotProvisioning",
+                                                                        "provisioningState": "@coalesce(body('Get_OS_Snapshot_Status')?['properties']?['provisioningState'],'TimedOut')",
+                                                                        "details": "@coalesce(body('Get_OS_Snapshot_Status')?['properties']?['provisioningError'],body('Get_OS_Snapshot_Status'))"
+                                                                    }
+                                                                },
+                                                                "Append_OS_Snapshot_Provisioning_Failed_Result": {
+                                                                    "type": "AppendToArrayVariable",
+                                                                    "runAfter": {
+                                                                        "OS_Snapshot_Provisioning_Failed": [
+                                                                            "Succeeded"
+                                                                        ]
+                                                                    },
+                                                                    "inputs": {
+                                                                        "name": "SnapshotResults",
+                                                                        "value": "@outputs('OS_Snapshot_Provisioning_Failed')"
+                                                                    }
+                                                                },
+                                                                "Increment_OS_Snapshot_Provisioning_Failure": {
+                                                                    "type": "IncrementVariable",
+                                                                    "runAfter": {
+                                                                        "Append_OS_Snapshot_Provisioning_Failed_Result": [
+                                                                            "Succeeded"
+                                                                        ]
+                                                                    },
+                                                                    "inputs": {
+                                                                        "name": "SnapshotFailureCount",
+                                                                        "value": 1
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "else": {
+                                                    "actions": {
+                                                        "OS_Disk_Not_Managed": {
+                                                            "type": "Compose",
+                                                            "inputs": {
+                                                                "requestId": "@outputs('Request_ID')",
+                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                "status": "Skipped",
+                                                                "reason": "The VM OS disk is not an Azure managed disk.",
+                                                                "diskType": "OS"
+                                                            }
+                                                        },
+                                                        "Append_OS_Unmanaged_Result": {
+                                                            "type": "AppendToArrayVariable",
+                                                            "runAfter": {
+                                                                "OS_Disk_Not_Managed": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "inputs": {
+                                                                "name": "SnapshotResults",
+                                                                "value": "@outputs('OS_Disk_Not_Managed')"
+                                                            }
+                                                        },
+                                                        "Increment_OS_Unmanaged_Failure": {
+                                                            "type": "IncrementVariable",
+                                                            "runAfter": {
+                                                                "Append_OS_Unmanaged_Result": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "inputs": {
+                                                                "name": "SnapshotFailureCount",
+                                                                "value": 1
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "Process_Data_Disks": {
+                                                "type": "If",
+                                                "runAfter": {
+                                                    "OS_Disk_Is_Managed": [
+                                                        "Succeeded",
+                                                        "Failed",
+                                                        "Skipped",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "expression": {
+                                                    "equals": [
+                                                        "@triggerBody()?['snapshotScope']",
+                                                        "AllDisks"
+                                                    ]
+                                                },
+                                                "actions": {
+                                                    "For_Each_Data_Disk": {
+                                                        "type": "Foreach",
+                                                        "foreach": "@coalesce(outputs('VM_Record')?['DataDisks'],json('[]'))",
+                                                        "runtimeConfiguration": {
+                                                            "concurrency": {
+                                                                "repetitions": 1
+                                                            }
+                                                        },
+                                                        "actions": {
+                                                            "Data_Disk_ID": {
+                                                                "type": "Compose",
+                                                                "inputs": "@coalesce(items('For_Each_Data_Disk')?['managedDisk']?['id'],'')"
+                                                            },
+                                                            "Data_Disk_Is_Managed": {
+                                                                "type": "If",
+                                                                "runAfter": {
+                                                                    "Data_Disk_ID": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "expression": {
+                                                                    "not": {
+                                                                        "equals": [
+                                                                            "@trim(outputs('Data_Disk_ID'))",
+                                                                            ""
+                                                                        ]
+                                                                    }
+                                                                },
+                                                                "actions": {
+                                                                    "Get_Data_Disk": {
+                                                                        "type": "Http",
+                                                                        "inputs": {
+                                                                            "uri": "@concat('https://management.azure.com',outputs('Data_Disk_ID'),'?api-version=',parameters('computeApiVersion'))",
+                                                                            "method": "GET",
+                                                                            "authentication": {
+                                                                                "type": "ManagedServiceIdentity",
+                                                                                "audience": "https://management.azure.com/"
+                                                                            },
+                                                                            "retryPolicy": {
+                                                                                "type": "exponential",
+                                                                                "count": 3,
+                                                                                "interval": "PT5S",
+                                                                                "minimumInterval": "PT5S",
+                                                                                "maximumInterval": "PT30S"
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    "Data_Disk_Read_Failed": {
+                                                                        "type": "Compose",
+                                                                        "runAfter": {
+                                                                            "Get_Data_Disk": [
+                                                                                "Failed",
+                                                                                "TimedOut"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "requestId": "@outputs('Request_ID')",
+                                                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                            "diskType": "Data",
+                                                                            "lun": "@items('For_Each_Data_Disk')?['lun']",
+                                                                            "status": "Failed",
+                                                                            "failureStage": "ReadSourceDisk",
+                                                                            "httpStatus": "@outputs('Get_Data_Disk')?['statusCode']",
+                                                                            "details": "@outputs('Get_Data_Disk')?['body']"
+                                                                        }
+                                                                    },
+                                                                    "Append_Data_Disk_Read_Failed_Result": {
+                                                                        "type": "AppendToArrayVariable",
+                                                                        "runAfter": {
+                                                                            "Data_Disk_Read_Failed": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "name": "SnapshotResults",
+                                                                            "value": "@outputs('Data_Disk_Read_Failed')"
+                                                                        }
+                                                                    },
+                                                                    "Increment_Data_Disk_Read_Failure": {
+                                                                        "type": "IncrementVariable",
+                                                                        "runAfter": {
+                                                                            "Append_Data_Disk_Read_Failed_Result": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "name": "SnapshotFailureCount",
+                                                                            "value": 1
+                                                                        }
+                                                                    },
+                                                                    "Data_Snapshot_Name": {
+                                                                        "type": "Compose",
+                                                                        "runAfter": {
+                                                                            "Get_Data_Disk": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": "@take(concat('SNP-',toUpper(triggerBody()?['changeNumber']),'-',outputs('Normalize_Current_Hostname'),'-DATA',string(coalesce(items('For_Each_Data_Disk')?['lun'],0)),'-',substring(outputs('Request_ID'),0,8)),80)"
+                                                                    },
+                                                                    "Create_Data_Snapshot": {
+                                                                        "type": "Http",
+                                                                        "runAfter": {
+                                                                            "Data_Snapshot_Name": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('snapshotResourceGroup'),'/providers/Microsoft.Compute/snapshots/',outputs('Data_Snapshot_Name'),'?api-version=',parameters('computeApiVersion'))",
+                                                                            "method": "PUT",
+                                                                            "headers": {
+                                                                                "Content-Type": "application/json"
+                                                                            },
+                                                                            "body": {
+                                                                                "location": "@body('Get_Data_Disk')?['location']",
+                                                                                "properties": {
+                                                                                    "creationData": {
+                                                                                        "createOption": "Copy",
+                                                                                        "sourceResourceId": "@outputs('Data_Disk_ID')"
+                                                                                    }
+                                                                                },
+                                                                                "tags": {
+                                                                                    "ManagedBy": "VMSnapshotPortal",
+                                                                                    "RequestId": "@outputs('Request_ID')",
+                                                                                    "RequestedBy": "@triggerBody()?['requesterUserName']",
+                                                                                    "RequesterName": "@coalesce(triggerBody()?['requesterName'],triggerBody()?['requesterUserName'])",
+                                                                                    "ChangeNumber": "@triggerBody()?['changeNumber']",
+                                                                                    "Hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                    "VMName": "@outputs('VM_Record')?['VMName']",
+                                                                                    "DiskType": "Data",
+                                                                                    "LUN": "@string(coalesce(items('For_Each_Data_Disk')?['lun'],0))",
+                                                                                    "SourceDiskName": "@body('Get_Data_Disk')?['name']",
+                                                                                    "CreatedUtc": "@utcNow()",
+                                                                                    "RetentionDays": "@string(triggerBody()?['retentionDays'])",
+                                                                                    "ExpiresUtc": "@triggerBody()?['expiresUtc']"
+                                                                                }
+                                                                            },
+                                                                            "authentication": {
+                                                                                "type": "ManagedServiceIdentity",
+                                                                                "audience": "https://management.azure.com/"
+                                                                            },
+                                                                            "retryPolicy": {
+                                                                                "type": "exponential",
+                                                                                "count": 3,
+                                                                                "interval": "PT5S",
+                                                                                "minimumInterval": "PT5S",
+                                                                                "maximumInterval": "PT30S"
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    "Data_Create_Request_Failed": {
+                                                                        "type": "Compose",
+                                                                        "runAfter": {
+                                                                            "Create_Data_Snapshot": [
+                                                                                "Failed",
+                                                                                "TimedOut"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "requestId": "@outputs('Request_ID')",
+                                                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                            "diskType": "Data",
+                                                                            "lun": "@items('For_Each_Data_Disk')?['lun']",
+                                                                            "sourceDiskName": "@body('Get_Data_Disk')?['name']",
+                                                                            "snapshotName": "@outputs('Data_Snapshot_Name')",
+                                                                            "status": "Failed",
+                                                                            "failureStage": "CreateSnapshot",
+                                                                            "httpStatus": "@outputs('Create_Data_Snapshot')?['statusCode']",
+                                                                            "details": "@outputs('Create_Data_Snapshot')?['body']"
+                                                                        }
+                                                                    },
+                                                                    "Append_Data_Create_Request_Failed_Result": {
+                                                                        "type": "AppendToArrayVariable",
+                                                                        "runAfter": {
+                                                                            "Data_Create_Request_Failed": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "name": "SnapshotResults",
+                                                                            "value": "@outputs('Data_Create_Request_Failed')"
+                                                                        }
+                                                                    },
+                                                                    "Increment_Data_Create_Request_Failure": {
+                                                                        "type": "IncrementVariable",
+                                                                        "runAfter": {
+                                                                            "Append_Data_Create_Request_Failed_Result": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "inputs": {
+                                                                            "name": "SnapshotFailureCount",
+                                                                            "value": 1
+                                                                        }
+                                                                    },
+                                                                    "Wait_For_Data_Snapshot_Provisioning": {
+                                                                        "type": "Until",
+                                                                        "runAfter": {
+                                                                            "Create_Data_Snapshot": [
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "expression": "@or(equals(body('Get_Data_Snapshot_Status')?['properties']?['provisioningState'],'Succeeded'),equals(body('Get_Data_Snapshot_Status')?['properties']?['provisioningState'],'Failed'))",
+                                                                        "limit": {
+                                                                            "count": 60,
+                                                                            "timeout": "PT10M"
+                                                                        },
+                                                                        "actions": {
+                                                                            "Delay_Data_Snapshot_Status_Check": {
+                                                                                "type": "Wait",
+                                                                                "inputs": {
+                                                                                    "interval": {
+                                                                                        "count": 5,
+                                                                                        "unit": "Second"
+                                                                                    }
+                                                                                }
+                                                                            },
+                                                                            "Get_Data_Snapshot_Status": {
+                                                                                "type": "Http",
+                                                                                "runAfter": {
+                                                                                    "Delay_Data_Snapshot_Status_Check": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/resourceGroups/',parameters('snapshotResourceGroup'),'/providers/Microsoft.Compute/snapshots/',outputs('Data_Snapshot_Name'),'?api-version=',parameters('computeApiVersion'))",
+                                                                                    "method": "GET",
+                                                                                    "authentication": {
+                                                                                        "type": "ManagedServiceIdentity",
+                                                                                        "audience": "https://management.azure.com/"
+                                                                                    },
+                                                                                    "retryPolicy": {
+                                                                                        "type": "exponential",
+                                                                                        "count": 3,
+                                                                                        "interval": "PT5S",
+                                                                                        "minimumInterval": "PT5S",
+                                                                                        "maximumInterval": "PT30S"
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    "Data_Provisioning_Succeeded": {
+                                                                        "type": "If",
+                                                                        "runAfter": {
+                                                                            "Wait_For_Data_Snapshot_Provisioning": [
+                                                                                "Succeeded",
+                                                                                "Failed",
+                                                                                "TimedOut"
+                                                                            ]
+                                                                        },
+                                                                        "expression": {
+                                                                            "equals": [
+                                                                                "@body('Get_Data_Snapshot_Status')?['properties']?['provisioningState']",
+                                                                                "Succeeded"
+                                                                            ]
+                                                                        },
+                                                                        "actions": {
+                                                                            "Data_Snapshot_Created": {
+                                                                                "type": "Compose",
+                                                                                "inputs": {
+                                                                                    "requestId": "@outputs('Request_ID')",
+                                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                    "diskType": "Data",
+                                                                                    "lun": "@items('For_Each_Data_Disk')?['lun']",
+                                                                                    "sourceDiskName": "@body('Get_Data_Disk')?['name']",
+                                                                                    "snapshotName": "@outputs('Data_Snapshot_Name')",
+                                                                                    "snapshotId": "@body('Get_Data_Snapshot_Status')?['id']",
+                                                                                    "status": "Created"
+                                                                                }
+                                                                            },
+                                                                            "Append_Data_Snapshot_Created_Result": {
+                                                                                "type": "AppendToArrayVariable",
+                                                                                "runAfter": {
+                                                                                    "Data_Snapshot_Created": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "name": "SnapshotResults",
+                                                                                    "value": "@outputs('Data_Snapshot_Created')"
+                                                                                }
+                                                                            },
+                                                                            "Increment_Data_Snapshot_Success": {
+                                                                                "type": "IncrementVariable",
+                                                                                "runAfter": {
+                                                                                    "Append_Data_Snapshot_Created_Result": [
+                                                                                        "Succeeded"
+                                                                                    ]
+                                                                                },
+                                                                                "inputs": {
+                                                                                    "name": "SnapshotSuccessCount",
+                                                                                    "value": 1
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        "else": {
+                                                                            "actions": {
+                                                                                "Data_Snapshot_Provisioning_Failed": {
+                                                                                    "type": "Compose",
+                                                                                    "inputs": {
+                                                                                        "requestId": "@outputs('Request_ID')",
+                                                                                        "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                        "diskType": "Data",
+                                                                                        "lun": "@items('For_Each_Data_Disk')?['lun']",
+                                                                                        "sourceDiskName": "@body('Get_Data_Disk')?['name']",
+                                                                                        "snapshotName": "@outputs('Data_Snapshot_Name')",
+                                                                                        "status": "Failed",
+                                                                                        "failureStage": "SnapshotProvisioning",
+                                                                                        "provisioningState": "@coalesce(body('Get_Data_Snapshot_Status')?['properties']?['provisioningState'],'TimedOut')",
+                                                                                        "details": "@coalesce(body('Get_Data_Snapshot_Status')?['properties']?['provisioningError'],body('Get_Data_Snapshot_Status'))"
+                                                                                    }
+                                                                                },
+                                                                                "Append_Data_Snapshot_Provisioning_Failed_Result": {
+                                                                                    "type": "AppendToArrayVariable",
+                                                                                    "runAfter": {
+                                                                                        "Data_Snapshot_Provisioning_Failed": [
+                                                                                            "Succeeded"
+                                                                                        ]
+                                                                                    },
+                                                                                    "inputs": {
+                                                                                        "name": "SnapshotResults",
+                                                                                        "value": "@outputs('Data_Snapshot_Provisioning_Failed')"
+                                                                                    }
+                                                                                },
+                                                                                "Increment_Data_Snapshot_Provisioning_Failure": {
+                                                                                    "type": "IncrementVariable",
+                                                                                    "runAfter": {
+                                                                                        "Append_Data_Snapshot_Provisioning_Failed_Result": [
+                                                                                            "Succeeded"
+                                                                                        ]
+                                                                                    },
+                                                                                    "inputs": {
+                                                                                        "name": "SnapshotFailureCount",
+                                                                                        "value": 1
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "else": {
+                                                                    "actions": {
+                                                                        "Data_Disk_Not_Managed": {
+                                                                            "type": "Compose",
+                                                                            "inputs": {
+                                                                                "requestId": "@outputs('Request_ID')",
+                                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                                "lun": "@items('For_Each_Data_Disk')?['lun']",
+                                                                                "status": "Skipped",
+                                                                                "reason": "The data disk is not an Azure managed disk.",
+                                                                                "diskType": "Data"
+                                                                            }
+                                                                        },
+                                                                        "Append_Data_Unmanaged_Result": {
+                                                                            "type": "AppendToArrayVariable",
+                                                                            "runAfter": {
+                                                                                "Data_Disk_Not_Managed": [
+                                                                                    "Succeeded"
+                                                                                ]
+                                                                            },
+                                                                            "inputs": {
+                                                                                "name": "SnapshotResults",
+                                                                                "value": "@outputs('Data_Disk_Not_Managed')"
+                                                                            }
+                                                                        },
+                                                                        "Increment_Data_Unmanaged_Failure": {
+                                                                            "type": "IncrementVariable",
+                                                                            "runAfter": {
+                                                                                "Append_Data_Unmanaged_Result": [
+                                                                                    "Succeeded"
+                                                                                ]
+                                                                            },
+                                                                            "inputs": {
+                                                                                "name": "SnapshotFailureCount",
+                                                                                "value": 1
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "else": {
+                                                    "actions": {
+                                                        "Data_Disks_Not_Requested": {
+                                                            "type": "Compose",
+                                                            "inputs": {
+                                                                "requestId": "@outputs('Request_ID')",
+                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                "status": "Skipped",
+                                                                "reason": "Snapshot scope is OS disk only."
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "VM_Snapshot_Processing_Completed": {
+                                                "type": "Compose",
+                                                "runAfter": {
+                                                    "Process_Data_Disks": [
+                                                        "Succeeded",
+                                                        "Failed",
+                                                        "Skipped",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "requestId": "@outputs('Request_ID')",
+                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                    "vmName": "@outputs('VM_Record')?['VMName']",
+                                                    "subscriptionName": "@outputs('VM_Record')?['SubscriptionName']",
+                                                    "snapshotResourceGroup": "@parameters('snapshotResourceGroup')",
+                                                    "snapshotScope": "@triggerBody()?['snapshotScope']",
+                                                    "processingFinishedUtc": "@utcNow()",
+                                                    "retentionDays": "@triggerBody()?['retentionDays']",
+                                                    "expiresUtc": "@triggerBody()?['expiresUtc']"
+                                                }
+                                            },
+                                            "Snapshot_Resource_Group_Failed": {
+                                                "type": "Compose",
+                                                "runAfter": {
+                                                    "Ensure_Snapshot_Resource_Group": [
+                                                        "Failed",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "requestId": "@outputs('Request_ID')",
+                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                    "diskType": "VM",
+                                                    "status": "Failed",
+                                                    "failureStage": "EnsureSnapshotResourceGroup",
+                                                    "httpStatus": "@outputs('Ensure_Snapshot_Resource_Group')?['statusCode']",
+                                                    "details": "@outputs('Ensure_Snapshot_Resource_Group')?['body']"
+                                                }
+                                            },
+                                            "Append_Snapshot_RG_Result": {
+                                                "type": "AppendToArrayVariable",
+                                                "runAfter": {
+                                                    "Snapshot_Resource_Group_Failed": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "name": "SnapshotResults",
+                                                    "value": "@outputs('Snapshot_Resource_Group_Failed')"
+                                                }
+                                            },
+                                            "Increment_Snapshot_RG_Failure": {
+                                                "type": "IncrementVariable",
+                                                "runAfter": {
+                                                    "Append_Snapshot_RG_Result": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "inputs": {
+                                                    "name": "SnapshotFailureCount",
+                                                    "value": 1
+                                                }
+                                            }
+                                        },
+                                        "else": {
+                                            "actions": {
+                                                "No_VM_Found": {
+                                                    "type": "If",
+                                                    "expression": {
+                                                        "equals": [
+                                                            "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                            0
+                                                        ]
+                                                    },
+                                                    "actions": {
+                                                        "VM_Not_Found": {
+                                                            "type": "Compose",
+                                                            "inputs": {
+                                                                "requestId": "@outputs('Request_ID')",
+                                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                "status": "NotFound",
+                                                                "message": "No matching Azure VM was found in Azure Resource Graph."
+                                                            }
+                                                        },
+                                                        "Append_VM_Not_Found_Result": {
+                                                            "type": "AppendToArrayVariable",
+                                                            "runAfter": {
+                                                                "VM_Not_Found": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "inputs": {
+                                                                "name": "SnapshotResults",
+                                                                "value": "@outputs('VM_Not_Found')"
+                                                            }
+                                                        },
+                                                        "Increment_VM_Not_Found_Failure": {
+                                                            "type": "IncrementVariable",
+                                                            "runAfter": {
+                                                                "Append_VM_Not_Found_Result": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "inputs": {
+                                                                "name": "SnapshotFailureCount",
+                                                                "value": 1
+                                                            }
+                                                        }
+                                                    },
+                                                    "else": {
+                                                        "actions": {
+                                                            "Multiple_VM_Matches": {
+                                                                "type": "Compose",
+                                                                "inputs": {
+                                                                    "requestId": "@outputs('Request_ID')",
+                                                                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                                    "status": "MultipleMatches",
+                                                                    "matchCount": "@length(body('Query_Azure_Resource_Graph')?['data'])",
+                                                                    "matches": "@body('Query_Azure_Resource_Graph')?['data']",
+                                                                    "message": "Multiple Azure VMs matched this hostname. Use a unique hostname or contact the portal administrator."
+                                                                }
+                                                            },
+                                                            "Append_Multiple_VM_Matches_Result": {
+                                                                "type": "AppendToArrayVariable",
+                                                                "runAfter": {
+                                                                    "Multiple_VM_Matches": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "inputs": {
+                                                                    "name": "SnapshotResults",
+                                                                    "value": "@outputs('Multiple_VM_Matches')"
+                                                                }
+                                                            },
+                                                            "Increment_Multiple_VM_Matches_Failure": {
+                                                                "type": "IncrementVariable",
+                                                                "runAfter": {
+                                                                    "Append_Multiple_VM_Matches_Result": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "inputs": {
+                                                                    "name": "SnapshotFailureCount",
+                                                                    "value": 1
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "Azure_Resource_Graph_Query_Failed": {
+                                        "type": "Compose",
+                                        "runAfter": {
+                                            "Query_Azure_Resource_Graph": [
+                                                "Failed",
+                                                "TimedOut"
+                                            ]
+                                        },
+                                        "inputs": {
+                                            "requestId": "@outputs('Request_ID')",
+                                            "hostname": "@outputs('Normalize_Current_Hostname')",
+                                            "status": "Failed",
+                                            "failureStage": "DiscoverVM",
+                                            "httpStatus": "@outputs('Query_Azure_Resource_Graph')?['statusCode']",
+                                            "details": "@outputs('Query_Azure_Resource_Graph')?['body']"
+                                        }
+                                    },
+                                    "Append_Resource_Graph_Result": {
+                                        "type": "AppendToArrayVariable",
+                                        "runAfter": {
+                                            "Azure_Resource_Graph_Query_Failed": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "inputs": {
+                                            "name": "SnapshotResults",
+                                            "value": "@outputs('Azure_Resource_Graph_Query_Failed')"
+                                        }
+                                    },
+                                    "Increment_Resource_Graph_Failure": {
+                                        "type": "IncrementVariable",
+                                        "runAfter": {
+                                            "Append_Resource_Graph_Result": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "inputs": {
+                                            "name": "SnapshotFailureCount",
+                                            "value": 1
+                                        }
+                                    }
+                                },
+                                "else": {
+                                    "actions": {
+                                        "Invalid_Hostname": {
+                                            "type": "Compose",
+                                            "inputs": {
+                                                "requestId": "@outputs('Request_ID')",
+                                                "hostname": "@outputs('Normalize_Current_Hostname')",
+                                                "status": "Invalid",
+                                                "message": "Hostname is empty or exceeds the allowed length."
+                                            }
+                                        },
+                                        "Append_Invalid_Hostname_Result": {
+                                            "type": "AppendToArrayVariable",
+                                            "runAfter": {
+                                                "Invalid_Hostname": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "inputs": {
+                                                "name": "SnapshotResults",
+                                                "value": "@outputs('Invalid_Hostname')"
+                                            }
+                                        },
+                                        "Increment_Invalid_Hostname_Failure": {
+                                            "type": "IncrementVariable",
+                                            "runAfter": {
+                                                "Append_Invalid_Hostname_Result": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "inputs": {
+                                                "name": "SnapshotFailureCount",
+                                                "value": 1
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Snapshot_Request_Completed": {
+                        "type": "Compose",
+                        "runAfter": {
+                            "For_Each_Hostname": [
+                                "Succeeded",
+                                "Failed",
+                                "TimedOut",
+                                "Skipped"
+                            ]
+                        },
+                        "inputs": {
+                            "requestId": "@outputs('Request_ID')",
+                            "submittedHostnames": "@length(outputs('Distinct_Hostnames'))",
+                            "snapshotScope": "@triggerBody()?['snapshotScope']",
+                            "completedUtc": "@utcNow()",
+                            "retentionDays": "@triggerBody()?['retentionDays']",
+                            "expiresUtc": "@triggerBody()?['expiresUtc']"
+                        }
+                    },
+                    "Final_Snapshot_Status": {
+                        "type": "Compose",
+                        "runAfter": {
+                            "Snapshot_Request_Completed": [
+                                "Succeeded"
+                            ]
+                        },
+                        "inputs": "@if(and(greater(variables('SnapshotSuccessCount'),0),equals(variables('SnapshotFailureCount'),0)),'Completed',if(greater(variables('SnapshotSuccessCount'),0),'PartiallyCompleted','Failed'))"
+                    },
+                    "Write_Final_Snapshot_Status": {
+                        "type": "Http",
+                        "runAfter": {
+                            "Final_Snapshot_Status": [
+                                "Succeeded"
+                            ]
+                        },
+                        "inputs": {
+                            "uri": "@triggerBody()?['statusBlobUrl']",
+                            "method": "PUT",
+                            "headers": {
+                                "x-ms-blob-type": "BlockBlob",
+                                "x-ms-version": "2023-11-03",
+                                "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                                "Content-Type": "application/json"
+                            },
+                            "body": {
+                                "requestId": "@outputs('Request_ID')",
+                                "requesterUserId": "@triggerBody()?['requesterUserId']",
+                                "requesterUserName": "@triggerBody()?['requesterUserName']",
+                                "status": "@outputs('Final_Snapshot_Status')",
+                                "message": "@if(equals(outputs('Final_Snapshot_Status'),'Completed'),'All requested snapshots were created successfully.',if(equals(outputs('Final_Snapshot_Status'),'PartiallyCompleted'),'Some snapshots were created, but one or more operations failed.','Snapshot creation failed. No requested snapshot operation completed successfully.'))",
+                                "submittedUtc": "@triggerBody()?['submittedUtc']",
+                                "completedUtc": "@utcNow()",
+                                "submittedCount": "@length(outputs('Distinct_Hostnames'))",
+                                "snapshotScope": "@triggerBody()?['snapshotScope']",
+                                "retentionDays": "@triggerBody()?['retentionDays']",
+                                "expiresUtc": "@triggerBody()?['expiresUtc']",
+                                "successCount": "@variables('SnapshotSuccessCount')",
+                                "failureCount": "@variables('SnapshotFailureCount')",
+                                "snapshotCount": "@variables('SnapshotSuccessCount')",
+                                "results": "@variables('SnapshotResults')"
+                            },
+                            "authentication": {
+                                "type": "ManagedServiceIdentity",
+                                "audience": "https://storage.azure.com/"
+                            }
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Write_Invalid_Request_Status": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "@triggerBody()?['statusBlobUrl']",
+                                "method": "PUT",
+                                "headers": {
+                                    "x-ms-blob-type": "BlockBlob",
+                                    "x-ms-version": "2023-11-03",
+                                    "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "requestId": "@outputs('Request_ID')",
+                                    "requesterUserId": "@triggerBody()?['requesterUserId']",
+                                    "requesterUserName": "@triggerBody()?['requesterUserName']",
+                                    "status": "Failed",
+                                    "message": "The snapshot request failed Logic App validation.",
+                                    "submittedUtc": "@triggerBody()?['submittedUtc']",
+                                    "completedUtc": "@utcNow()",
+                                    "submittedCount": "@length(outputs('Distinct_Hostnames'))",
+                                    "snapshotScope": "@triggerBody()?['snapshotScope']",
+                                    "retentionDays": "@triggerBody()?['retentionDays']",
+                                    "expiresUtc": "@triggerBody()?['expiresUtc']",
+                                    "successCount": 0,
+                                    "failureCount": "@length(outputs('Distinct_Hostnames'))",
+                                    "snapshotCount": 0,
+                                    "results": []
+                                },
+                                "authentication": {
+                                    "type": "ManagedServiceIdentity",
+                                    "audience": "https://storage.azure.com/"
+                                }
+                            }
+                        },
+                        "Invalid_Snapshot_Request": {
+                            "type": "Terminate",
+                            "inputs": {
+                                "runStatus": "Failed",
+                                "runError": {
+                                    "code": "InvalidSnapshotRequest",
+                                    "message": "The request failed validation. Provide 1 to 5 hostnames, OSOnly or AllDisks scope, an approved retention period (1, 3, 7 or 14 days), an expiry timestamp, a change number, reason and authenticated requester details."
+                                }
+                            },
+                            "runAfter": {
+                                "Write_Invalid_Request_Status": [
+                                    "Succeeded",
+                                    "Failed",
+                                    "TimedOut"
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+            "Initialize_Snapshot_Results": {
+                "type": "InitializeVariable",
+                "runAfter": {
+                    "Distinct_Hostnames": [
+                        "Succeeded"
+                    ]
+                },
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "SnapshotResults",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                }
+            },
+            "Initialize_Snapshot_Success_Count": {
+                "type": "InitializeVariable",
+                "runAfter": {
+                    "Initialize_Snapshot_Results": [
+                        "Succeeded"
+                    ]
+                },
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "SnapshotSuccessCount",
+                            "type": "integer",
+                            "value": 0
+                        }
+                    ]
+                }
+            },
+            "Initialize_Snapshot_Failure_Count": {
+                "type": "InitializeVariable",
+                "runAfter": {
+                    "Initialize_Snapshot_Success_Count": [
+                        "Succeeded"
+                    ]
+                },
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "SnapshotFailureCount",
+                            "type": "integer",
+                            "value": 0
+                        }
+                    ]
+                }
+            },
+            "Write_Processing_Status": {
+                "type": "Http",
+                "runAfter": {
+                    "Initialize_Snapshot_Failure_Count": [
+                        "Succeeded"
+                    ]
+                },
+                "inputs": {
+                    "uri": "@triggerBody()?['statusBlobUrl']",
+                    "method": "PUT",
+                    "headers": {
+                        "x-ms-blob-type": "BlockBlob",
+                        "x-ms-version": "2023-11-03",
+                        "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                        "Content-Type": "application/json"
+                    },
+                    "body": {
+                        "requestId": "@outputs('Request_ID')",
+                        "requesterUserId": "@triggerBody()?['requesterUserId']",
+                        "requesterUserName": "@triggerBody()?['requesterUserName']",
+                        "status": "Processing",
+                        "message": "Azure VM discovery and snapshot creation are in progress.",
+                        "submittedUtc": "@triggerBody()?['submittedUtc']",
+                        "completedUtc": null,
+                        "submittedCount": "@length(outputs('Distinct_Hostnames'))",
+                        "snapshotScope": "@triggerBody()?['snapshotScope']",
+                        "retentionDays": "@triggerBody()?['retentionDays']",
+                        "expiresUtc": "@triggerBody()?['expiresUtc']",
+                        "successCount": 0,
+                        "failureCount": 0,
+                        "snapshotCount": 0,
+                        "results": []
+                    },
+                    "authentication": {
+                        "type": "ManagedServiceIdentity",
+                        "audience": "https://storage.azure.com/"
+                    }
+                }
+            }
+        },
+        "outputs": {}
+    },
+    "parameters": {
+        "snapshotResourceGroup": {
+            "value": "rg-vm-maintenance-snapshots"
+        },
+        "snapshotResourceGroupLocation": {
+            "value": "westeurope"
+        },
+        "maximumHostnames": {
+            "value": 5
+        },
+        "resourceGraphApiVersion": {
+            "value": "2024-04-01"
+        },
+        "resourceGroupApiVersion": {
+            "value": "2021-04-01"
+        },
+        "computeApiVersion": {
+            "value": "2025-01-02"
+        },
+        "$connections": {
+            "type": "Object",
+            "value": {}
+        }
+    }
+}
