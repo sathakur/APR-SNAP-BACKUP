@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure VM Operations Portal</title>
-  <link rel="stylesheet" href="/styles.css?v=20260808-backup-precheck-1">
+  <link rel="stylesheet" href="/styles.css?v=20260808-my-backup-requests-1">
 </head>
 <body>
   <header class="topbar">
@@ -493,10 +493,42 @@
         class="card result-card"
         hidden
         aria-live="polite"></section>
+
+      <section
+        id="backupHistoryCard"
+        class="card backup-history-card"
+        aria-labelledby="backupHistoryHeading">
+        <div class="backup-history-header">
+          <div>
+            <span class="requirements-label">Server-side request history</span>
+            <h2 id="backupHistoryHeading">My Backup Requests</h2>
+            <p class="field-help">
+              Your recent VM Backup requests are stored per authenticated Microsoft Entra user.
+              You can close this page and return later, including from another browser or device.
+            </p>
+          </div>
+
+          <button
+            id="backupHistoryRefreshButton"
+            type="button"
+            class="secondary">
+            Refresh
+          </button>
+        </div>
+
+        <div
+          id="backupHistoryMessage"
+          class="field-help"
+          aria-live="polite"></div>
+
+        <div
+          id="backupHistoryTableArea"
+          class="backup-history-table-area"></div>
+      </section>
     </section>
 
   </main>
 
-  <script src="/app.js?v=20260808-backup-precheck-1"></script>
+  <script src="/app.js?v=20260808-my-backup-requests-1"></script>
 </body>
 </html>

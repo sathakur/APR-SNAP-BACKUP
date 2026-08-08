@@ -27,3 +27,12 @@ The existing APR and Snapshot backends remain separate and unchanged.
 The VM Backup tab now performs a read-only Azure Backup status check before
 Backup Now is enabled. It shows protection, vault, policy, last backup status,
 last successful backup, active job state, and a VM-specific approximate duration.
+
+
+## My Backup Requests
+
+The VM Backup tab now includes server-side per-user request history. The latest
+request IDs are indexed in the existing `backup-status` Blob container under a
+SHA-256 hash of the authenticated Entra user ID. No Blob List permission is required.
+Users can return later, including from another browser/device, and use **View** or
+**View / Resume** to inspect a request.

@@ -71,6 +71,12 @@ const backupClearButton =
   document.getElementById("backupClearButton");
 const backupResultArea =
   document.getElementById("backupResultArea");
+const backupHistoryRefreshButton =
+  document.getElementById("backupHistoryRefreshButton");
+const backupHistoryMessage =
+  document.getElementById("backupHistoryMessage");
+const backupHistoryTableArea =
+  document.getElementById("backupHistoryTableArea");
 
 const SNAPSHOT_STATUS_POLL_INTERVAL_MS = 5000;
 const SNAPSHOT_STATUS_MAX_POLLS = 360;
@@ -1841,6 +1847,314 @@ function renderBackupStatus(result) {
     );
 }
 
+
+function getBackupHistoryBadgeClass(
+  status
+) {
+  if (status === "Completed") {
+    return "badge-success";
+  }
+
+  if (
+    status ===
+      "PartiallyCompleted" ||
+    status ===
+      "CompletedWithWarnings" ||
+    status ===
+      "Submitted" ||
+    status ===
+      "Processing" ||
+    status ===
+      "Accepted"
+  ) {
+    return "badge-warning";
+  }
+
+  return "badge-error";
+}
+
+function renderMyBackupRequests(
+  requests
+) {
+  if (
+    !Array.isArray(requests) ||
+    requests.length === 0
+  ) {
+    backupHistoryTableArea.innerHTML = `
+      <div class="backup-history-empty">
+        No server-side VM Backup request history is available yet.
+        New requests submitted after this update will appear here automatically.
+      </div>`;
+
+    return;
+  }
+
+  const rows =
+    requests.map((item) => {
+      const hostnames =
+        Array.isArray(
+          item.hostnames
+        )
+          ? item.hostnames
+              .filter(Boolean)
+          : [];
+
+      const status =
+        item.status ||
+        "Unknown";
+
+      const completionText =
+        item.completedUtc
+          ? formatBackupDateTime(
+              item.completedUtc
+            )
+          : "-";
+
+      const completedCount =
+        `${item.successCount ?? 0}/${item.submittedCount ?? hostnames.length ?? 0}`;
+
+      return `
+        <tr>
+          <td>
+            <code>${escapeHtml(
+              item.requestId || ""
+            )}</code>
+          </td>
+          <td class="backup-history-vms">
+            ${escapeHtml(
+              hostnames.length
+                ? hostnames.join(", ")
+                : "Not available"
+            )}
+          </td>
+          <td>${escapeHtml(
+            item.changeNumber ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            formatBackupDateTime(
+              item.submittedUtc
+            )
+          )}</td>
+          <td>
+            <span class="badge ${getBackupHistoryBadgeClass(
+              status
+            )}">
+              ${escapeHtml(
+                status
+              )}
+            </span>
+          </td>
+          <td>${escapeHtml(
+            completedCount
+          )}</td>
+          <td>${escapeHtml(
+            completionText
+          )}</td>
+          <td class="backup-history-actions">
+            <button
+              type="button"
+              class="secondary backup-history-view-button"
+              data-request-id="${escapeHtml(
+                item.requestId || ""
+              )}">
+              ${
+                backupStatusIsTerminal(
+                  status
+                )
+                  ? "View"
+                  : "View / Resume"
+              }
+            </button>
+          </td>
+        </tr>`;
+    }).join("");
+
+  backupHistoryTableArea.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Request ID</th>
+            <th>VMs</th>
+            <th>Change / Incident</th>
+            <th>Submitted</th>
+            <th>Status</th>
+            <th>Completed VMs</th>
+            <th>Completed</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  backupHistoryTableArea
+    .querySelectorAll(
+      ".backup-history-view-button"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          const requestId =
+            button.dataset
+              .requestId;
+
+          if (requestId) {
+            openBackupRequestFromHistory(
+              requestId
+            );
+          }
+        }
+      );
+    });
+}
+
+async function loadMyBackupRequests(
+  showLoading = true
+) {
+  if (!authenticatedPrincipal) {
+    return;
+  }
+
+  if (showLoading) {
+    backupHistoryMessage.textContent =
+      "Loading your recent VM Backup requests…";
+  }
+
+  backupHistoryRefreshButton.disabled =
+    true;
+
+  try {
+    const response =
+      await fetch(
+        "/api/getMyBackupRequests?limit=25",
+        {
+          method: "GET",
+          headers: {
+            Accept:
+              "application/json"
+          },
+          cache: "no-store"
+        }
+      );
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/"
+      );
+      return;
+    }
+
+    const result =
+      await response.json();
+
+    if (!response.ok) {
+      backupHistoryMessage.innerHTML = `
+        <span class="backup-history-error">
+          ${escapeHtml(
+            result.message ||
+            "My Backup Requests could not be loaded."
+          )}
+        </span>`;
+
+      return;
+    }
+
+    backupHistoryMessage.textContent =
+      `Showing ${result.count ?? 0} recent request${result.count === 1 ? "" : "s"}.`;
+
+    renderMyBackupRequests(
+      result.requests
+    );
+  } catch (error) {
+    backupHistoryMessage.innerHTML = `
+      <span class="backup-history-error">
+        ${escapeHtml(
+          `My Backup Requests could not be loaded: ${error.message}`
+        )}
+      </span>`;
+  } finally {
+    backupHistoryRefreshButton.disabled =
+      false;
+  }
+}
+
+async function openBackupRequestFromHistory(
+  requestId
+) {
+  backupHistoryMessage.textContent =
+    "Loading selected VM Backup request…";
+
+  try {
+    const response =
+      await fetch(
+        `/api/getBackupStatus?requestId=${encodeURIComponent(
+          requestId
+        )}`,
+        {
+          method: "GET",
+          headers: {
+            Accept:
+              "application/json"
+          },
+          cache: "no-store"
+        }
+      );
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/"
+      );
+      return;
+    }
+
+    const result =
+      await response.json();
+
+    if (!response.ok) {
+      backupHistoryMessage.innerHTML = `
+        <span class="backup-history-error">
+          ${escapeHtml(
+            result.message ||
+            "The selected backup request could not be loaded."
+          )}
+        </span>`;
+      return;
+    }
+
+    renderBackupStatus(
+      result
+    );
+
+    backupResultArea.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+
+    if (
+      !backupStatusIsTerminal(
+        result.status
+      )
+    ) {
+      startBackupStatusPolling(
+        requestId
+      );
+    }
+
+    backupHistoryMessage.textContent =
+      "Selected request loaded.";
+  } catch (error) {
+    backupHistoryMessage.innerHTML = `
+      <span class="backup-history-error">
+        ${escapeHtml(
+          `The selected backup request could not be loaded: ${error.message}`
+        )}
+      </span>`;
+  }
+}
+
 async function pollBackupStatus(
   requestId
 ) {
@@ -1895,6 +2209,11 @@ async function pollBackupStatus(
         stopBackupStatusPolling(
           true
         );
+
+        loadMyBackupRequests(
+          false
+        );
+
         return;
       }
     } else if (
@@ -2010,6 +2329,14 @@ function showBackupResult(
 
   startBackupStatusPolling(
     result.requestId
+  );
+
+  window.setTimeout(
+    () =>
+      loadMyBackupRequests(
+        false
+      ),
+    750
   );
 }
 
@@ -2170,6 +2497,10 @@ suppressionTabButton.addEventListener("click", () => {
 
 backupTabButton.addEventListener("click", () => {
   activateOperationTab("backup");
+
+  loadMyBackupRequests(
+    false
+  );
 });
 
 backupHostnamesInput.addEventListener(
@@ -2183,6 +2514,14 @@ backupHostnamesInput.addEventListener(
 backupCheckButton.addEventListener(
   "click",
   checkBackupStatusBeforeSubmit
+);
+
+backupHistoryRefreshButton.addEventListener(
+  "click",
+  () =>
+    loadMyBackupRequests(
+      true
+    )
 );
 
 backupClearButton.addEventListener("click", () => {
@@ -2505,6 +2844,10 @@ form.addEventListener("submit", async (event) => {
 loadAuthenticatedUser()
   .then(() => {
     startIdleLogoutMonitoring();
+
+    loadMyBackupRequests(
+      false
+    );
   })
   .catch((error) => {
   console.error(error);

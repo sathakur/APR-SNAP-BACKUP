@@ -6,6 +6,9 @@ const {
 const {
   reserveBackupRequest
 } = require("../shared/backupRequestLimiter");
+const {
+  appendBackupRequestHistory
+} = require("../shared/backupRequestHistoryStore");
 
 const MAX_HOSTNAMES = 5;
 const ALLOWED_HOSTNAME =
@@ -341,6 +344,34 @@ app.http("submitBackup", {
       });
     }
 
+    let historyTracked =
+      true;
+
+    try {
+      await appendBackupRequestHistory(
+        requesterUserId,
+        {
+          requestId,
+          submittedUtc,
+          hostnames,
+          changeNumber:
+            String(
+              body.changeNumber
+            )
+              .trim()
+              .toUpperCase()
+        }
+      );
+    } catch (error) {
+      historyTracked =
+        false;
+
+      context.warn(
+        `Unable to add backup request ${requestId} to My Backup Requests.`,
+        error
+      );
+    }
+
     const logicPayload = {
       requestId,
       submittedUtc,
@@ -477,8 +508,11 @@ app.http("submitBackup", {
         requestQuota.requestsUsed,
       requestsRemainingInLast24Hours:
         requestQuota.requestsRemaining,
+      historyTracked,
       message:
-        "The VM backup request was accepted. The portal will monitor it until Azure Backup completes or fails."
+        historyTracked
+          ? "The VM backup request was accepted. The portal will monitor it until Azure Backup completes or fails."
+          : "The VM backup request was accepted, but it could not be added to My Backup Requests. Keep the Request ID for status tracking."
     });
   }
 });
