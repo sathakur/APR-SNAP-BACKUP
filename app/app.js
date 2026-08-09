@@ -78,6 +78,7 @@ const backupHistoryMessage =
 const backupHistoryTableArea =
   document.getElementById("backupHistoryTableArea");
 
+
 const SNAPSHOT_STATUS_POLL_INTERVAL_MS = 5000;
 const SNAPSHOT_STATUS_MAX_POLLS = 360;
 
@@ -320,7 +321,7 @@ function activateOperationTab(tabName) {
     backup: {
       button: backupTabButton,
       panel: backupPanel
-    }
+    },
   };
 
   const selected =
@@ -2491,6 +2492,8 @@ function showResult(result, httpStatus) {
 }
 
 
+
+
 suppressionTabButton.addEventListener("click", () => {
   activateOperationTab("suppression");
 });
@@ -2502,6 +2505,7 @@ backupTabButton.addEventListener("click", () => {
     false
   );
 });
+
 
 backupHostnamesInput.addEventListener(
   "input",
@@ -2924,3 +2928,4 @@ const initialOperationTab =
 activateOperationTab(
   initialOperationTab
 );
+

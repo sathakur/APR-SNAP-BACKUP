@@ -36,3 +36,11 @@ request IDs are indexed in the existing `backup-status` Blob container under a
 SHA-256 hash of the authenticated Entra user ID. No Blob List permission is required.
 Users can return later, including from another browser/device, and use **View** or
 **View / Resume** to inspect a request.
+
+
+## Ad Hoc VM Backup parallel execution
+
+The VM Backup tab is now named **Ad Hoc VM Backup**. Up to five VMs in one request are processed
+in parallel. Each concurrent VM writes a unique result record under
+`backup-status/parallel-results/<request-id>/<hostname>.json`; results are collected sequentially
+after the parallel loop so shared Logic App variables are not mutated concurrently.
