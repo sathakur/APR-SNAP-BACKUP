@@ -12,6 +12,20 @@
   },
   "routes": [
     {
+      "route": "/",
+      "allowedRoles": [
+        "anonymous",
+        "authenticated"
+      ]
+    },
+    {
+      "route": "/index.html",
+      "allowedRoles": [
+        "anonymous",
+        "authenticated"
+      ]
+    },
+    {
       "route": "/unauthorized.html",
       "allowedRoles": [
         "anonymous",
@@ -22,6 +36,12 @@
       "route": "/signed-out.html",
       "allowedRoles": [
         "anonymous",
+        "authenticated"
+      ]
+    },
+    {
+      "route": "/portal.html",
+      "allowedRoles": [
         "authenticated"
       ]
     },
@@ -41,7 +61,7 @@
   "responseOverrides": {
     "401": {
       "statusCode": 302,
-      "redirect": "/.auth/login/aad?post_login_redirect_uri=/"
+      "redirect": "/.auth/login/aad?post_login_redirect_uri=/portal.html"
     },
     "403": {
       "statusCode": 403,

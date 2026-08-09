@@ -527,7 +527,7 @@ async function loadAuthenticatedUser() {
     !principal.userRoles.includes("authenticated")
   ) {
     window.location.assign(
-      "/.auth/login/aad?post_login_redirect_uri=/"
+      "/.auth/login/aad?post_login_redirect_uri=/portal.html"
     );
     return;
   }
@@ -990,7 +990,7 @@ async function pollSnapshotStatus(requestId) {
 
     if (response.status === 401) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -1473,7 +1473,7 @@ async function checkBackupStatusBeforeSubmit() {
 
     if (response.status === 401) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -2043,7 +2043,7 @@ async function loadMyBackupRequests(
 
     if (response.status === 401) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -2106,7 +2106,7 @@ async function openBackupRequestFromHistory(
 
     if (response.status === 401) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -2189,7 +2189,7 @@ async function pollBackupStatus(
       response.status === 401
     ) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -2622,7 +2622,7 @@ backupForm.addEventListener("submit", async (event) => {
       response.status === 401
     ) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -2740,7 +2740,7 @@ snapshotForm.addEventListener("submit", async (event) => {
 
     if (response.status === 401) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
@@ -2824,7 +2824,7 @@ form.addEventListener("submit", async (event) => {
 
     if (response.status === 401) {
       window.location.assign(
-        "/.auth/login/aad?post_login_redirect_uri=/"
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
       );
       return;
     }
