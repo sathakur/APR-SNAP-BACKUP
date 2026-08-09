@@ -2029,7 +2029,7 @@ async function loadMyBackupRequests(
   try {
     const response =
       await fetch(
-        "/api/getMyBackupRequests?limit=25",
+        "/api/getMyBackupRequests?limit=5",
         {
           method: "GET",
           headers: {

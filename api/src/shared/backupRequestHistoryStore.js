@@ -1,7 +1,7 @@
 const { createHash } = require("node:crypto");
 
 const STORAGE_API_VERSION = "2023-11-03";
-const MAX_HISTORY_RECORDS = 100;
+const MAX_HISTORY_RECORDS = 5;
 const MAX_CONCURRENCY_RETRIES = 6;
 
 function getContainerSasUrl() {

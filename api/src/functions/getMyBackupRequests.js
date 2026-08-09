@@ -6,8 +6,8 @@ const {
   readBackupStatus
 } = require("../shared/backupStatusStore");
 
-const DEFAULT_LIMIT = 25;
-const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 5;
+const MAX_LIMIT = 5;
 
 function jsonResponse(
   status,
