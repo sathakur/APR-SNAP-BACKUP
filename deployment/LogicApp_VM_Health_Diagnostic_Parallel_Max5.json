@@ -1,0 +1,856 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "maximumHostnames": {
+        "type": "Int",
+        "defaultValue": 5
+      },
+      "resourceGraphApiVersion": {
+        "type": "String",
+        "defaultValue": "2024-04-01"
+      },
+      "computeApiVersion": {
+        "type": "String",
+        "defaultValue": "2026-03-01"
+      },
+      "resourceHealthApiVersion": {
+        "type": "String",
+        "defaultValue": "2025-05-01"
+      },
+      "metricsApiVersion": {
+        "type": "String",
+        "defaultValue": "2023-10-01"
+      },
+      "dcrApiVersion": {
+        "type": "String",
+        "defaultValue": "2024-03-11"
+      },
+      "backupApiVersion": {
+        "type": "String",
+        "defaultValue": "2026-01-01"
+      },
+      "logAnalyticsWorkspaceId": {
+        "type": "String",
+        "defaultValue": ""
+      },
+      "$connections": {
+        "type": "Object",
+        "defaultValue": {}
+      }
+    },
+    "triggers": {
+      "When_an_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "submittedUtc": {
+                "type": "string"
+              },
+              "hostnames": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "periodMinutes": {
+                "type": "integer"
+              },
+              "statusBlobUrl": {
+                "type": "string"
+              },
+              "requesterUserName": {
+                "type": "string"
+              },
+              "requesterUserId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId",
+              "submittedUtc",
+              "hostnames",
+              "periodMinutes",
+              "statusBlobUrl",
+              "requesterUserName",
+              "requesterUserId"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Request_ID": {
+        "type": "Compose",
+        "inputs": "@toLower(triggerBody()?['requestId'])"
+      },
+      "Distinct_Hostnames": {
+        "type": "Compose",
+        "runAfter": {
+          "Request_ID": [
+            "Succeeded"
+          ]
+        },
+        "inputs": "@union(triggerBody()?['hostnames'],triggerBody()?['hostnames'])"
+      },
+      "Initialize_Health_Results": {
+        "type": "InitializeVariable",
+        "runAfter": {
+          "Distinct_Hostnames": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "variables": [
+            {
+              "name": "HealthResults",
+              "type": "array",
+              "value": []
+            }
+          ]
+        }
+      },
+      "Write_Processing_Status": {
+        "type": "Http",
+        "runAfter": {
+          "Initialize_Health_Results": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "uri": "@triggerBody()?['statusBlobUrl']",
+          "method": "PUT",
+          "headers": {
+            "x-ms-blob-type": "BlockBlob",
+            "x-ms-version": "2023-11-03",
+            "x-ms-date": "@formatDateTime(utcNow(),'R')",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "requestId": "@outputs('Request_ID')",
+            "requesterUserId": "@triggerBody()?['requesterUserId']",
+            "requesterUserName": "@triggerBody()?['requesterUserName']",
+            "status": "Processing",
+            "message": "Azure VM health checks are running in parallel for up to 5 VMs. No remediation changes are performed.",
+            "submittedUtc": "@triggerBody()?['submittedUtc']",
+            "completedUtc": null,
+            "periodMinutes": "@int(triggerBody()?['periodMinutes'])",
+            "submittedCount": "@length(outputs('Distinct_Hostnames'))",
+            "successCount": 0,
+            "warningCount": 0,
+            "failureCount": 0,
+            "results": []
+          },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://storage.azure.com/"
+          }
+        }
+      },
+      "Acknowledge_Request": {
+        "type": "Response",
+        "kind": "Http",
+        "runAfter": {
+          "Write_Processing_Status": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "statusCode": 202,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "accepted": true,
+            "requestId": "@outputs('Request_ID')"
+          }
+        }
+      },
+      "Request_Is_Valid": {
+        "type": "Compose",
+        "runAfter": {
+          "Acknowledge_Request": [
+            "Succeeded"
+          ]
+        },
+        "inputs": "@and(greaterOrEquals(length(outputs('Distinct_Hostnames')),1),lessOrEquals(length(outputs('Distinct_Hostnames')),parameters('maximumHostnames')),contains(createArray(60,180,360,1440),int(triggerBody()?['periodMinutes'])),not(equals(trim(coalesce(triggerBody()?['requesterUserId'],'')),'')))"
+      },
+      "For_Each_Hostname": {
+        "type": "Foreach",
+        "foreach": "@if(outputs('Request_Is_Valid'),outputs('Distinct_Hostnames'),json('[]'))",
+        "runAfter": {
+          "Request_Is_Valid": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "repetitions": 5
+          }
+        },
+        "actions": {
+          "Normalize_Current_Hostname": {
+            "type": "Compose",
+            "inputs": "@toUpper(trim(item()))"
+          },
+          "VM_Result_Blob_URL": {
+            "type": "Compose",
+            "runAfter": {
+              "Normalize_Current_Hostname": [
+                "Succeeded"
+              ]
+            },
+            "inputs": "@concat(substring(triggerBody()?['statusBlobUrl'],0,lastIndexOf(triggerBody()?['statusBlobUrl'],'/')),'/health-parallel-results/',outputs('Request_ID'),'/',toLower(outputs('Normalize_Current_Hostname')),'.json')"
+          },
+          "Query_VM_Resource_Graph": {
+            "type": "Http",
+            "runAfter": {
+              "VM_Result_Blob_URL": [
+                "Succeeded"
+              ]
+            },
+            "inputs": {
+              "uri": "@concat('https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=',parameters('resourceGraphApiVersion'))",
+              "method": "POST",
+              "headers": {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+              },
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://management.azure.com/"
+              },
+              "body": {
+                "query": "@concat('Resources | where type =~ ''microsoft.compute/virtualmachines'' | extend OSHostName=tostring(properties.osProfile.computerName) | extend ShortOSHostName=tostring(split(OSHostName,''.'')[0]) | where toupper(name) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(OSHostName) == ''',outputs('Normalize_Current_Hostname'),''' or toupper(ShortOSHostName) == ''',outputs('Normalize_Current_Hostname'),''' | join kind=leftouter (ResourceContainers | where type =~ ''microsoft.resources/subscriptions'' | project subscriptionId, SubscriptionName=name) on subscriptionId | project Hostname=OSHostName, VMName=name, SubscriptionId=subscriptionId, SubscriptionName, ResourceGroup=resourceGroup, Location=location, ResourceId=id, VMSize=tostring(properties.hardwareProfile.vmSize), OSType=tostring(properties.storageProfile.osDisk.osType), ComputerName=tostring(properties.osProfile.computerName), SecurityType=tostring(properties.securityProfile.securityType), IdentityType=tostring(identity.type), BootDiagnosticsEnabled=tobool(properties.diagnosticsProfile.bootDiagnostics.enabled), Tags=tags')",
+                "options": {
+                  "resultFormat": "objectArray"
+                }
+              }
+            }
+          },
+          "Exactly_One_VM_Found": {
+            "type": "If",
+            "runAfter": {
+              "Query_VM_Resource_Graph": [
+                "Succeeded"
+              ]
+            },
+            "expression": {
+              "equals": [
+                "@length(body('Query_VM_Resource_Graph')?['data'])",
+                1
+              ]
+            },
+            "actions": {
+              "VM_Record": {
+                "type": "Compose",
+                "inputs": "@first(body('Query_VM_Resource_Graph')?['data'])"
+              },
+              "Get_Instance_View": {
+                "type": "Http",
+                "runAfter": {
+                  "VM_Record": [
+                    "Succeeded"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com',outputs('VM_Record')?['ResourceId'],'/instanceView?api-version=',parameters('computeApiVersion'))",
+                  "method": "GET",
+                  "headers": {
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  }
+                }
+              },
+              "Get_Resource_Health": {
+                "type": "Http",
+                "runAfter": {
+                  "Get_Instance_View": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com',outputs('VM_Record')?['ResourceId'],'/providers/Microsoft.ResourceHealth/availabilityStatuses/current?api-version=',parameters('resourceHealthApiVersion'))",
+                  "method": "GET",
+                  "headers": {
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  }
+                }
+              },
+              "Get_Platform_Metrics": {
+                "type": "Http",
+                "runAfter": {
+                  "Get_Resource_Health": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com',outputs('VM_Record')?['ResourceId'],'/providers/Microsoft.Insights/metrics?api-version=',parameters('metricsApiVersion'),'&timespan=',formatDateTime(addMinutes(utcNow(),mul(-1,int(triggerBody()?['periodMinutes']))),'yyyy-MM-ddTHH:mm:ssZ'),'/',formatDateTime(utcNow(),'yyyy-MM-ddTHH:mm:ssZ'),'&interval=PT5M&metricnames=Percentage%20CPU&aggregation=Average%2CMaximum')",
+                  "method": "GET",
+                  "headers": {
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  }
+                }
+              },
+              "List_VM_Extensions": {
+                "type": "Http",
+                "runAfter": {
+                  "Get_Platform_Metrics": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com',outputs('VM_Record')?['ResourceId'],'/extensions?api-version=',parameters('computeApiVersion'),'&$expand=instanceView')",
+                  "method": "GET",
+                  "headers": {
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  }
+                }
+              },
+              "List_DCR_Associations": {
+                "type": "Http",
+                "runAfter": {
+                  "List_VM_Extensions": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com',outputs('VM_Record')?['ResourceId'],'/providers/Microsoft.Insights/dataCollectionRuleAssociations?api-version=',parameters('dcrApiVersion'))",
+                  "method": "GET",
+                  "headers": {
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  }
+                }
+              },
+              "Get_Backup_Protection_Status": {
+                "type": "Http",
+                "runAfter": {
+                  "List_DCR_Associations": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com/subscriptions/',outputs('VM_Record')?['SubscriptionId'],'/providers/Microsoft.RecoveryServices/locations/',outputs('VM_Record')?['Location'],'/backupStatus?api-version=',parameters('backupApiVersion'))",
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  },
+                  "body": {
+                    "resourceId": "@outputs('VM_Record')?['ResourceId']",
+                    "resourceType": "VM"
+                  }
+                }
+              },
+              "Query_Attached_Disks": {
+                "type": "Http",
+                "runAfter": {
+                  "Get_Backup_Protection_Status": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=',parameters('resourceGraphApiVersion'))",
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  },
+                  "body": {
+                    "query": "@concat('Resources | where type =~ ''microsoft.compute/disks'' | where tolower(tostring(managedBy)) == tolower(''',outputs('VM_Record')?['ResourceId'],''') | project Name=name, ResourceId=id, ResourceGroup=resourceGroup, Location=location, SizeGB=toint(properties.diskSizeGB), Sku=tostring(sku.name), DiskState=tostring(properties.diskState), EncryptionType=tostring(properties.encryption.type), NetworkAccessPolicy=tostring(properties.networkAccessPolicy)')",
+                    "options": {
+                      "resultFormat": "objectArray"
+                    }
+                  }
+                }
+              },
+              "Query_Network_Interfaces": {
+                "type": "Http",
+                "runAfter": {
+                  "Query_Attached_Disks": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=',parameters('resourceGraphApiVersion'))",
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  },
+                  "body": {
+                    "query": "@concat('Resources | where type =~ ''microsoft.network/networkinterfaces'' | where tolower(tostring(properties.virtualMachine.id)) == tolower(''',outputs('VM_Record')?['ResourceId'],''') | mv-expand IpConfig=properties.ipConfigurations | project Name=name, ResourceId=id, PrivateIp=tostring(IpConfig.properties.privateIPAddress), PrivateIpAllocation=tostring(IpConfig.properties.privateIPAllocationMethod), SubnetId=tostring(IpConfig.properties.subnet.id), NSGId=tostring(properties.networkSecurityGroup.id), AcceleratedNetworking=tobool(properties.enableAcceleratedNetworking), IPForwarding=tobool(properties.enableIPForwarding)')",
+                    "options": {
+                      "resultFormat": "objectArray"
+                    }
+                  }
+                }
+              },
+              "Query_Patch_Assessment": {
+                "type": "Http",
+                "runAfter": {
+                  "Query_Network_Interfaces": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=',parameters('resourceGraphApiVersion'))",
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://management.azure.com/"
+                  },
+                  "body": {
+                    "query": "@concat('PatchAssessmentResources | where tolower(id) == strcat(tolower(''',outputs('VM_Record')?['ResourceId'],'''), ''/patchassessmentresults/latest'') | project AssessmentId=id, AssessmentName=name, Properties=properties')",
+                    "options": {
+                      "resultFormat": "objectArray"
+                    }
+                  }
+                }
+              },
+              "Query_Guest_Metrics": {
+                "type": "Http",
+                "runAfter": {
+                  "Query_Patch_Assessment": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@concat('https://api.loganalytics.azure.com/v1/workspaces/',parameters('logAnalyticsWorkspaceId'),'/query')",
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                  },
+                  "body": {
+                    "query": "@concat('let H=toupper(''',outputs('Normalize_Current_Hostname'),'''); InsightsMetrics | where Origin == \"vm.azm.ms\" | where toupper(Computer) == H or toupper(tostring(split(Computer,\".\")[0])) == H | where (Namespace == \"Memory\" and Name == \"AvailableMB\") or (Namespace == \"LogicalDisk\" and Name in (\"FreeSpacePercentage\",\"FreeSpaceMB\")) or (Namespace == \"Computer\" and Name == \"Heartbeat\") | extend Instance=tostring(todynamic(Tags)[\"vm.azm.ms/mountId\"]) | summarize arg_max(TimeGenerated, *) by Namespace, Name, Instance | project TimeGenerated, Computer, Namespace, Name, Instance, Value=Val, Tags=tostring(Tags)')",
+                    "timespan": "@concat('PT',string(triggerBody()?['periodMinutes']),'M')"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://api.loganalytics.io/"
+                  }
+                }
+              },
+              "Build_VM_Health_Result": {
+                "type": "Compose",
+                "runAfter": {
+                  "Query_Guest_Metrics": [
+                    "Succeeded",
+                    "Failed",
+                    "TimedOut",
+                    "Skipped"
+                  ]
+                },
+                "inputs": {
+                  "requestId": "@outputs('Request_ID')",
+                  "hostname": "@outputs('Normalize_Current_Hostname')",
+                  "status": "@if(and(equals(coalesce(actions('Get_Instance_View')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Get_Resource_Health')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Get_Platform_Metrics')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('List_VM_Extensions')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('List_DCR_Associations')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Get_Backup_Protection_Status')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Query_Attached_Disks')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Query_Network_Interfaces')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Query_Patch_Assessment')?['status'],'Skipped'),'Succeeded'),equals(coalesce(actions('Query_Guest_Metrics')?['status'],'Skipped'),'Succeeded')),'Completed','CompletedWithWarnings')",
+                  "message": "Read-only VM health checks completed. Review data-source status and findings for this VM.",
+                  "periodMinutes": "@int(triggerBody()?['periodMinutes'])",
+                  "vm": "@outputs('VM_Record')",
+                  "instanceView": "@coalesce(actions('Get_Instance_View')?['outputs']?['body'],json('{}'))",
+                  "resourceHealth": "@coalesce(actions('Get_Resource_Health')?['outputs']?['body'],json('{}'))",
+                  "platformMetrics": "@coalesce(actions('Get_Platform_Metrics')?['outputs']?['body'],json('{\"value\":[]}'))",
+                  "extensions": "@coalesce(actions('List_VM_Extensions')?['outputs']?['body'],json('{\"value\":[]}'))",
+                  "dcrAssociations": "@coalesce(actions('List_DCR_Associations')?['outputs']?['body'],json('{\"value\":[]}'))",
+                  "backup": "@coalesce(actions('Get_Backup_Protection_Status')?['outputs']?['body'],json('{}'))",
+                  "managedDisks": "@coalesce(actions('Query_Attached_Disks')?['outputs']?['body'],json('{\"data\":[]}'))",
+                  "network": "@coalesce(actions('Query_Network_Interfaces')?['outputs']?['body'],json('{\"data\":[]}'))",
+                  "patchAssessment": "@coalesce(actions('Query_Patch_Assessment')?['outputs']?['body'],json('{\"data\":[]}'))",
+                  "guestMetrics": "@coalesce(actions('Query_Guest_Metrics')?['outputs']?['body'],json('{\"tables\":[]}'))",
+                  "actionStatus": {
+                    "Get_Instance_View": "@coalesce(actions('Get_Instance_View')?['status'],'Skipped')",
+                    "Get_Resource_Health": "@coalesce(actions('Get_Resource_Health')?['status'],'Skipped')",
+                    "Get_Platform_Metrics": "@coalesce(actions('Get_Platform_Metrics')?['status'],'Skipped')",
+                    "List_VM_Extensions": "@coalesce(actions('List_VM_Extensions')?['status'],'Skipped')",
+                    "List_DCR_Associations": "@coalesce(actions('List_DCR_Associations')?['status'],'Skipped')",
+                    "Get_Backup_Protection_Status": "@coalesce(actions('Get_Backup_Protection_Status')?['status'],'Skipped')",
+                    "Query_Attached_Disks": "@coalesce(actions('Query_Attached_Disks')?['status'],'Skipped')",
+                    "Query_Network_Interfaces": "@coalesce(actions('Query_Network_Interfaces')?['status'],'Skipped')",
+                    "Query_Patch_Assessment": "@coalesce(actions('Query_Patch_Assessment')?['status'],'Skipped')",
+                    "Query_Guest_Metrics": "@coalesce(actions('Query_Guest_Metrics')?['status'],'Skipped')"
+                  }
+                }
+              },
+              "Write_VM_Health_Result": {
+                "type": "Http",
+                "runAfter": {
+                  "Build_VM_Health_Result": [
+                    "Succeeded"
+                  ]
+                },
+                "inputs": {
+                  "uri": "@outputs('VM_Result_Blob_URL')",
+                  "method": "PUT",
+                  "headers": {
+                    "x-ms-blob-type": "BlockBlob",
+                    "x-ms-version": "2023-11-03",
+                    "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                    "Content-Type": "application/json"
+                  },
+                  "body": "@outputs('Build_VM_Health_Result')",
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://storage.azure.com/"
+                  }
+                }
+              }
+            },
+            "else": {
+              "actions": {
+                "Build_VM_Discovery_Failure": {
+                  "type": "Compose",
+                  "inputs": {
+                    "requestId": "@outputs('Request_ID')",
+                    "hostname": "@outputs('Normalize_Current_Hostname')",
+                    "status": "Failed",
+                    "message": "@if(equals(length(body('Query_VM_Resource_Graph')?['data']),0),'No Azure VM matched the supplied hostname.','More than one Azure VM matched the supplied hostname. Use a unique VM/OS hostname.')",
+                    "matches": "@body('Query_VM_Resource_Graph')?['data']"
+                  }
+                },
+                "Write_VM_Discovery_Failure": {
+                  "type": "Http",
+                  "runAfter": {
+                    "Build_VM_Discovery_Failure": [
+                      "Succeeded"
+                    ]
+                  },
+                  "inputs": {
+                    "uri": "@outputs('VM_Result_Blob_URL')",
+                    "method": "PUT",
+                    "headers": {
+                      "x-ms-blob-type": "BlockBlob",
+                      "x-ms-version": "2023-11-03",
+                      "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                      "Content-Type": "application/json"
+                    },
+                    "body": "@outputs('Build_VM_Discovery_Failure')",
+                    "authentication": {
+                      "type": "ManagedServiceIdentity",
+                      "audience": "https://storage.azure.com/"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Build_ARG_Query_Failure": {
+            "type": "Compose",
+            "runAfter": {
+              "Query_VM_Resource_Graph": [
+                "Failed",
+                "TimedOut"
+              ]
+            },
+            "inputs": {
+              "requestId": "@outputs('Request_ID')",
+              "hostname": "@outputs('Normalize_Current_Hostname')",
+              "status": "Failed",
+              "message": "Azure Resource Graph VM discovery failed.",
+              "details": "@coalesce(actions('Query_VM_Resource_Graph')?['outputs']?['body'],json('{}'))"
+            }
+          },
+          "Write_ARG_Query_Failure": {
+            "type": "Http",
+            "runAfter": {
+              "Build_ARG_Query_Failure": [
+                "Succeeded"
+              ]
+            },
+            "inputs": {
+              "uri": "@outputs('VM_Result_Blob_URL')",
+              "method": "PUT",
+              "headers": {
+                "x-ms-blob-type": "BlockBlob",
+                "x-ms-version": "2023-11-03",
+                "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                "Content-Type": "application/json"
+              },
+              "body": "@outputs('Build_ARG_Query_Failure')",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://storage.azure.com/"
+              }
+            }
+          }
+        }
+      },
+      "Collect_Parallel_VM_Results": {
+        "type": "Foreach",
+        "foreach": "@outputs('Distinct_Hostnames')",
+        "runAfter": {
+          "For_Each_Hostname": [
+            "Succeeded",
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "repetitions": 1
+          }
+        },
+        "actions": {
+          "Normalize_Result_Hostname": {
+            "type": "Compose",
+            "inputs": "@toUpper(trim(item()))"
+          },
+          "Result_Blob_URL": {
+            "type": "Compose",
+            "runAfter": {
+              "Normalize_Result_Hostname": [
+                "Succeeded"
+              ]
+            },
+            "inputs": "@concat(substring(triggerBody()?['statusBlobUrl'],0,lastIndexOf(triggerBody()?['statusBlobUrl'],'/')),'/health-parallel-results/',outputs('Request_ID'),'/',toLower(outputs('Normalize_Result_Hostname')),'.json')"
+          },
+          "Get_VM_Health_Result": {
+            "type": "Http",
+            "runAfter": {
+              "Result_Blob_URL": [
+                "Succeeded"
+              ]
+            },
+            "inputs": {
+              "uri": "@outputs('Result_Blob_URL')",
+              "method": "GET",
+              "headers": {
+                "x-ms-version": "2023-11-03",
+                "x-ms-date": "@formatDateTime(utcNow(),'R')",
+                "Accept": "application/json"
+              },
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://storage.azure.com/"
+              }
+            }
+          },
+          "Append_VM_Health_Result": {
+            "type": "AppendToArrayVariable",
+            "runAfter": {
+              "Get_VM_Health_Result": [
+                "Succeeded"
+              ]
+            },
+            "inputs": {
+              "name": "HealthResults",
+              "value": "@body('Get_VM_Health_Result')"
+            }
+          },
+          "Build_VM_Result_Read_Failure": {
+            "type": "Compose",
+            "runAfter": {
+              "Get_VM_Health_Result": [
+                "Failed",
+                "TimedOut"
+              ]
+            },
+            "inputs": {
+              "hostname": "@outputs('Normalize_Result_Hostname')",
+              "status": "Failed",
+              "message": "The parallel VM health iteration did not produce a readable result record."
+            }
+          },
+          "Append_VM_Result_Read_Failure": {
+            "type": "AppendToArrayVariable",
+            "runAfter": {
+              "Build_VM_Result_Read_Failure": [
+                "Succeeded"
+              ]
+            },
+            "inputs": {
+              "name": "HealthResults",
+              "value": "@outputs('Build_VM_Result_Read_Failure')"
+            }
+          }
+        }
+      },
+      "Successful_Health_Results": {
+        "type": "Query",
+        "runAfter": {
+          "Collect_Parallel_VM_Results": [
+            "Succeeded",
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "inputs": {
+          "from": "@variables('HealthResults')",
+          "where": "@or(equals(item()?['status'],'Completed'),equals(item()?['status'],'CompletedWithWarnings'))"
+        }
+      },
+      "Warning_Health_Results": {
+        "type": "Query",
+        "runAfter": {
+          "Successful_Health_Results": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "from": "@variables('HealthResults')",
+          "where": "@equals(item()?['status'],'CompletedWithWarnings')"
+        }
+      },
+      "Failed_Health_Results": {
+        "type": "Query",
+        "runAfter": {
+          "Warning_Health_Results": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "from": "@variables('HealthResults')",
+          "where": "@and(not(equals(item()?['status'],'Completed')),not(equals(item()?['status'],'CompletedWithWarnings')))"
+        }
+      },
+      "Final_Health_Status": {
+        "type": "Compose",
+        "runAfter": {
+          "Failed_Health_Results": [
+            "Succeeded"
+          ]
+        },
+        "inputs": "@if(equals(outputs('Request_Is_Valid'),false),'Failed',if(and(greater(length(body('Successful_Health_Results')),0),equals(length(body('Failed_Health_Results')),0),equals(length(body('Warning_Health_Results')),0)),'Completed',if(greater(length(body('Successful_Health_Results')),0),'PartiallyCompleted','Failed')))"
+      },
+      "Write_Final_Health_Status": {
+        "type": "Http",
+        "runAfter": {
+          "Final_Health_Status": [
+            "Succeeded"
+          ]
+        },
+        "inputs": {
+          "uri": "@triggerBody()?['statusBlobUrl']",
+          "method": "PUT",
+          "headers": {
+            "x-ms-blob-type": "BlockBlob",
+            "x-ms-version": "2023-11-03",
+            "x-ms-date": "@formatDateTime(utcNow(),'R')",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "requestId": "@outputs('Request_ID')",
+            "requesterUserId": "@triggerBody()?['requesterUserId']",
+            "requesterUserName": "@triggerBody()?['requesterUserName']",
+            "status": "@outputs('Final_Health_Status')",
+            "message": "@if(equals(outputs('Request_Is_Valid'),false),'The VM health diagnostic request failed validation.',if(equals(outputs('Final_Health_Status'),'Completed'),'All requested VM health data was collected successfully.',if(equals(outputs('Final_Health_Status'),'PartiallyCompleted'),'VM health collection completed, but one or more VMs or data sources returned warnings.','No requested VM health diagnostic completed successfully.')))",
+            "submittedUtc": "@triggerBody()?['submittedUtc']",
+            "completedUtc": "@utcNow()",
+            "periodMinutes": "@int(triggerBody()?['periodMinutes'])",
+            "submittedCount": "@length(outputs('Distinct_Hostnames'))",
+            "successCount": "@if(equals(outputs('Request_Is_Valid'),false),0,length(body('Successful_Health_Results')))",
+            "warningCount": "@if(equals(outputs('Request_Is_Valid'),false),0,length(body('Warning_Health_Results')))",
+            "failureCount": "@if(equals(outputs('Request_Is_Valid'),false),length(outputs('Distinct_Hostnames')),length(body('Failed_Health_Results')))",
+            "results": "@if(equals(outputs('Request_Is_Valid'),false),json('[]'),variables('HealthResults'))"
+          },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://storage.azure.com/"
+          }
+        }
+      }
+    }
+  },
+  "parameters": {
+    "maximumHostnames": {
+      "value": 5
+    },
+    "resourceGraphApiVersion": {
+      "value": "2024-04-01"
+    },
+    "computeApiVersion": {
+      "value": "2026-03-01"
+    },
+    "resourceHealthApiVersion": {
+      "value": "2025-05-01"
+    },
+    "metricsApiVersion": {
+      "value": "2023-10-01"
+    },
+    "dcrApiVersion": {
+      "value": "2024-03-11"
+    },
+    "backupApiVersion": {
+      "value": "2026-01-01"
+    },
+    "logAnalyticsWorkspaceId": {
+      "value": ""
+    },
+    "$connections": {
+      "type": "Object",
+      "value": {}
+    }
+  }
+}

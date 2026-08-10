@@ -1,0 +1,55 @@
+{
+  "properties": {
+    "roleName": "VM Health Diagnostic Reader",
+    "description": "Read-only runtime permissions for the VM Health Diagnostic Logic App. Allows Azure VM discovery, runtime/agent/extension state, metrics, Resource Health, managed-disk and NIC reads, DCR association reads, latest patch-assessment reads, and Azure Backup protection-status lookup. It does not modify VMs, disks, networking, monitoring, patches, or backup configuration.",
+    "assignableScopes": [
+      "/subscriptions/<TARGET-SUBSCRIPTION-ID>"
+    ],
+    "permissions": [
+      {
+        "actions": [
+          "Microsoft.ResourceGraph/resources/read",
+          "Microsoft.Resources/subscriptions/read",
+          "Microsoft.Resources/subscriptions/resourceGroups/read",
+          "Microsoft.Compute/virtualMachines/read",
+          "Microsoft.Compute/virtualMachines/instanceView/read",
+          "Microsoft.Compute/virtualMachines/extensions/read",
+          "Microsoft.Compute/virtualMachines/patchAssessmentResults/read",
+          "Microsoft.Compute/virtualMachines/patchAssessmentResults/latest/read",
+          "Microsoft.Compute/disks/read",
+          "Microsoft.Network/networkInterfaces/read",
+          "Microsoft.Network/networkSecurityGroups/read",
+          "Microsoft.Network/virtualNetworks/read",
+          "Microsoft.Insights/Metrics/Read",
+          "Microsoft.Insights/DataCollectionRuleAssociations/Read",
+          "Microsoft.Insights/DataCollectionRules/Read",
+          "Microsoft.ResourceHealth/AvailabilityStatuses/Read",
+          "Microsoft.ResourceHealth/AvailabilityStatuses/current/read",
+          "Microsoft.RecoveryServices/Locations/backupStatus/action",
+          "Microsoft.RecoveryServices/Vaults/read"
+        ],
+        "notActions": [
+          "Microsoft.Compute/virtualMachines/write",
+          "Microsoft.Compute/virtualMachines/delete",
+          "Microsoft.Compute/virtualMachines/restart/action",
+          "Microsoft.Compute/virtualMachines/start/action",
+          "Microsoft.Compute/virtualMachines/powerOff/action",
+          "Microsoft.Compute/virtualMachines/deallocate/action",
+          "Microsoft.Compute/virtualMachines/runCommand/action",
+          "Microsoft.Compute/virtualMachines/installPatches/action",
+          "Microsoft.Compute/disks/write",
+          "Microsoft.Compute/disks/delete",
+          "Microsoft.Network/networkInterfaces/write",
+          "Microsoft.Network/networkSecurityGroups/write",
+          "Microsoft.Insights/DataCollectionRuleAssociations/Write",
+          "Microsoft.Insights/DataCollectionRules/Write",
+          "Microsoft.RecoveryServices/Vaults/backupFabrics/protectionContainers/protectedItems/backup/action",
+          "Microsoft.Authorization/roleAssignments/write",
+          "Microsoft.Authorization/roleDefinitions/write"
+        ],
+        "dataActions": [],
+        "notDataActions": []
+      }
+    ]
+  }
+}

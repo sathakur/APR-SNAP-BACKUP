@@ -1,0 +1,19 @@
+{
+  "properties": {
+    "roleName": "VM Health Backup Status Reader",
+    "description": "Adds only the Recovery Services backup-status lookup action required by VM Health Diagnostic. Use together with the built-in Reader role if your organization prefers a simple read-only UAT role model instead of the stricter VM Health Diagnostic Reader custom role.",
+    "assignableScopes": [
+      "/subscriptions/<TARGET-SUBSCRIPTION-ID>"
+    ],
+    "permissions": [
+      {
+        "actions": [
+          "Microsoft.RecoveryServices/Locations/backupStatus/action"
+        ],
+        "notActions": [],
+        "dataActions": [],
+        "notDataActions": []
+      }
+    ]
+  }
+}

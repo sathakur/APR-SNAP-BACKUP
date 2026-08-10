@@ -1,0 +1,40 @@
+{
+  "requestId": "11111111-2222-4333-8444-555555555555",
+  "requesterUserName": "user@contoso.com",
+  "status": "Completed",
+  "message": "All requested VM health data was collected successfully.",
+  "submittedUtc": "2026-08-10T12:00:00.000Z",
+  "completedUtc": "2026-08-10T12:00:18.000Z",
+  "periodMinutes": 60,
+  "submittedCount": 1,
+  "successCount": 1,
+  "warningCount": 0,
+  "failureCount": 0,
+  "results": [
+    {
+      "hostname": "WINVM001",
+      "status": "Completed",
+      "message": "Read-only VM health checks completed. Review data-source status and findings for this VM.",
+      "vm": {
+        "VMName": "WINVM001",
+        "SubscriptionName": "Production",
+        "ResourceGroup": "rg-prod-vm",
+        "Location": "westeurope",
+        "VMSize": "Standard_D4s_v5",
+        "OSType": "Windows",
+        "ComputerName": "WINVM001"
+      },
+      "instanceView": {},
+      "resourceHealth": {},
+      "platformMetrics": { "value": [] },
+      "extensions": { "value": [] },
+      "dcrAssociations": { "value": [] },
+      "backup": {},
+      "managedDisks": { "data": [] },
+      "network": { "data": [] },
+      "patchAssessment": { "data": [] },
+      "guestMetrics": { "tables": [] },
+      "actionStatus": {}
+    }
+  ]
+}

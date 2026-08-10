@@ -1,5 +1,6 @@
 const MAX_HOSTNAMES = 20;
 const SNAPSHOT_MAX_HOSTNAMES = 5;
+const HEALTH_MAX_HOSTNAMES = 5;
 const FIXED_TIME_ZONE = "W. Europe Standard Time";
 const IANA_TIME_ZONE = "Europe/Amsterdam";
 const MINIMUM_LEAD_MINUTES = 45;
@@ -84,6 +85,27 @@ const backupHistoryMessage =
 const backupHistoryTableArea =
   document.getElementById("backupHistoryTableArea");
 
+const healthTabButton =
+  document.getElementById("healthTabButton");
+const healthPanel =
+  document.getElementById("healthPanel");
+const healthForm =
+  document.getElementById("healthForm");
+const healthHostnamesInput =
+  document.getElementById("healthHostnames");
+const healthHostnameCount =
+  document.getElementById("healthHostnameCount");
+const healthPeriodMinutes =
+  document.getElementById("healthPeriodMinutes");
+const healthValidationMessage =
+  document.getElementById("healthValidationMessage");
+const healthSubmitButton =
+  document.getElementById("healthSubmitButton");
+const healthClearButton =
+  document.getElementById("healthClearButton");
+const healthResultArea =
+  document.getElementById("healthResultArea");
+
 
 const SNAPSHOT_STATUS_POLL_INTERVAL_MS = 5000;
 const SNAPSHOT_STATUS_MAX_POLLS = 360;
@@ -101,6 +123,13 @@ let backupStatusPollCount = 0;
 let currentBackupRequestId = null;
 let backupPrecheckFingerprint = "";
 let backupPrecheckPassed = false;
+
+const HEALTH_STATUS_POLL_INTERVAL_MS = 5000;
+const HEALTH_STATUS_MAX_POLLS = 120;
+
+let healthStatusPollTimer = null;
+let healthStatusPollCount = 0;
+let currentHealthRequestId = null;
 
 let authenticatedPrincipal = null;
 
@@ -328,6 +357,10 @@ function activateOperationTab(tabName) {
       button: backupTabButton,
       panel: backupPanel
     },
+    health: {
+      button: healthTabButton,
+      panel: healthPanel
+    }
   };
 
   const selected =
@@ -570,6 +603,9 @@ async function loadAuthenticatedUser() {
 
   backupSubmitButton.disabled = true;
   backupSubmitButton.textContent = "Check backup status first";
+
+  healthSubmitButton.disabled = false;
+  healthSubmitButton.textContent = "Run VM health diagnostic";
 }
 
 function validateForm(payload) {
@@ -2855,6 +2891,886 @@ function showResult(result, httpStatus) {
 
 
 
+/* =========================================================
+   VM Health Diagnostic V1
+   ========================================================= */
+function updateHealthHostnameCount() {
+  const count = parseHostnames(healthHostnamesInput.value).length;
+  healthHostnameCount.textContent = `${count} / ${HEALTH_MAX_HOSTNAMES}`;
+  healthHostnameCount.classList.toggle("over-limit", count > HEALTH_MAX_HOSTNAMES);
+}
+
+function validateHealthForm(payload) {
+  if (!authenticatedPrincipal) {
+    return "Your authenticated identity is not available. Refresh the page.";
+  }
+
+  if (payload.hostnames.length < 1) {
+    return "Enter at least one VM hostname.";
+  }
+
+  if (payload.hostnames.length > HEALTH_MAX_HOSTNAMES) {
+    return `A maximum of ${HEALTH_MAX_HOSTNAMES} unique hostnames is allowed.`;
+  }
+
+  const hostnamePattern = /^[A-Z0-9._-]{1,253}$/;
+  const invalidHostname = payload.hostnames.find(
+    (hostname) => !hostnamePattern.test(hostname)
+  );
+
+  if (invalidHostname) {
+    return `Invalid hostname: ${invalidHostname}.`;
+  }
+
+  if (![60, 180, 360, 1440].includes(Number(payload.periodMinutes))) {
+    return "Select a valid diagnostic period.";
+  }
+
+  return "";
+}
+
+function healthFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function healthFormatNumber(value, digits = 1) {
+  const number = healthFiniteNumber(value);
+  return number === null ? "Unknown" : number.toFixed(digits);
+}
+
+function healthFormatPercent(value, digits = 1) {
+  const number = healthFiniteNumber(value);
+  return number === null ? "Unknown" : `${number.toFixed(digits)}%`;
+}
+
+function healthBasename(resourceId) {
+  const value = String(resourceId || "").replace(/\/$/, "");
+  if (!value) return "Not available";
+  const parts = value.split("/").filter(Boolean);
+  return parts.at(-1) || value;
+}
+
+function healthResourceSegment(resourceId, segmentName) {
+  const parts = String(resourceId || "")
+    .split("/")
+    .filter(Boolean);
+  const index = parts.findIndex(
+    (part) => part.toLowerCase() === String(segmentName || "").toLowerCase()
+  );
+  return index >= 0 && parts[index + 1]
+    ? parts[index + 1]
+    : "Unknown";
+}
+
+function healthParseJson(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
+function healthGetInstanceStatus(result, prefix) {
+  const statuses = Array.isArray(result?.instanceView?.statuses)
+    ? result.instanceView.statuses
+    : [];
+
+  const match = statuses.find((status) =>
+    String(status?.code || "").toLowerCase().startsWith(prefix.toLowerCase())
+  );
+
+  return match
+    ? String(match.displayStatus || match.code?.split("/").at(-1) || "Unknown")
+    : "Unknown";
+}
+
+function healthGetAgentStatus(result) {
+  const statuses = Array.isArray(result?.instanceView?.vmAgent?.statuses)
+    ? result.instanceView.vmAgent.statuses
+    : [];
+
+  const status = statuses[0];
+  return status
+    ? String(status.displayStatus || status.code?.split("/").at(-1) || "Unknown")
+    : "Unknown";
+}
+
+function healthReadCpu(result) {
+  const metrics = Array.isArray(result?.platformMetrics?.value)
+    ? result.platformMetrics.value
+    : [];
+
+  const metric = metrics.find((item) =>
+    String(item?.name?.value || item?.name?.localizedValue || "")
+      .toLowerCase()
+      .includes("percentage cpu")
+  );
+
+  const points = (metric?.timeseries || [])
+    .flatMap((series) => Array.isArray(series?.data) ? series.data : []);
+
+  const averages = points
+    .map((point) => healthFiniteNumber(point?.average))
+    .filter((value) => value !== null);
+
+  const maximums = points
+    .map((point) => healthFiniteNumber(point?.maximum))
+    .filter((value) => value !== null);
+
+  return {
+    average:
+      averages.length > 0
+        ? averages.reduce((sum, value) => sum + value, 0) / averages.length
+        : null,
+    maximum:
+      maximums.length > 0
+        ? Math.max(...maximums)
+        : null
+  };
+}
+
+function healthReadGuestRows(result) {
+  const table = Array.isArray(result?.guestMetrics?.tables)
+    ? result.guestMetrics.tables[0]
+    : null;
+
+  if (!table || !Array.isArray(table.columns) || !Array.isArray(table.rows)) {
+    return [];
+  }
+
+  const columns = table.columns.map((column) => String(column?.name || ""));
+
+  return table.rows.map((row) =>
+    Object.fromEntries(columns.map((column, index) => [column, row[index]]))
+  );
+}
+
+function healthReadGuest(result) {
+  const rows = healthReadGuestRows(result);
+  const memoryRow = rows.find(
+    (row) => row.Namespace === "Memory" && row.Name === "AvailableMB"
+  );
+  const heartbeatRow = rows.find(
+    (row) => row.Namespace === "Computer" && row.Name === "Heartbeat"
+  );
+
+  let availableMemoryMb = healthFiniteNumber(memoryRow?.Value);
+  let availableMemoryPercent = null;
+
+  if (memoryRow) {
+    const tags = healthParseJson(memoryRow.Tags);
+    const totalMemoryMb = healthFiniteNumber(tags["vm.azm.ms/memorySizeMB"]);
+
+    if (availableMemoryMb !== null && totalMemoryMb && totalMemoryMb > 0) {
+      availableMemoryPercent = (availableMemoryMb / totalMemoryMb) * 100;
+    }
+  }
+
+  const disksByInstance = new Map();
+
+  for (const row of rows) {
+    if (row.Namespace !== "LogicalDisk") continue;
+
+    const instance = String(row.Instance || "Unknown");
+    const current = disksByInstance.get(instance) || {
+      instance,
+      freePercent: null,
+      freeMb: null,
+      timeGenerated: row.TimeGenerated || null
+    };
+
+    if (row.Name === "FreeSpacePercentage") {
+      current.freePercent = healthFiniteNumber(row.Value);
+    }
+
+    if (row.Name === "FreeSpaceMB") {
+      current.freeMb = healthFiniteNumber(row.Value);
+    }
+
+    if (row.TimeGenerated) current.timeGenerated = row.TimeGenerated;
+    disksByInstance.set(instance, current);
+  }
+
+  const disks = [...disksByInstance.values()];
+  const freePercents = disks
+    .map((disk) => disk.freePercent)
+    .filter((value) => value !== null);
+
+  return {
+    availableMemoryMb,
+    availableMemoryPercent,
+    lowestDiskFreePercent:
+      freePercents.length > 0 ? Math.min(...freePercents) : null,
+    disks,
+    heartbeatUtc: heartbeatRow?.TimeGenerated || null,
+    dataAvailable: rows.length > 0
+  };
+}
+
+function healthReadPatch(result) {
+  const records = Array.isArray(result?.patchAssessment?.data)
+    ? result.patchAssessment.data
+    : [];
+  const properties = records[0]?.Properties || {};
+  const counts = properties.availablePatchCountByClassification || {};
+
+  const criticalSecurityCount = Object.entries(counts)
+    .filter(([name]) => /critical|security/i.test(name))
+    .reduce((sum, [, value]) => sum + (Number(value) || 0), 0);
+
+  const totalPending = Object.values(counts)
+    .reduce((sum, value) => sum + (Number(value) || 0), 0);
+
+  return {
+    available: records.length > 0,
+    properties,
+    criticalSecurityCount,
+    totalPending,
+    rebootPending: properties.rebootPending ?? null,
+    lastAssessmentUtc:
+      properties.lastModifiedDateTime || properties.startDateTime || null
+  };
+}
+
+function healthReadExtensions(result) {
+  return Array.isArray(result?.extensions?.value)
+    ? result.extensions.value
+    : [];
+}
+
+function healthReadMonitoring(result, guest) {
+  const extensions = healthReadExtensions(result);
+  const amaExtension = extensions.find((extension) => {
+    const text = `${extension?.name || ""} ${extension?.properties?.type || ""}`.toLowerCase();
+    return text.includes("azuremonitorwindowsagent") ||
+      text.includes("azuremonitorlinuxagent");
+  });
+
+  const dcrs = Array.isArray(result?.dcrAssociations?.value)
+    ? result.dcrAssociations.value
+    : [];
+
+  return {
+    amaInstalled: Boolean(amaExtension),
+    amaProvisioningState:
+      amaExtension?.properties?.provisioningState || "Unknown",
+    dcrCount: dcrs.length,
+    dcrs,
+    vmInsightsDataAvailable: guest.dataAvailable,
+    heartbeatUtc: guest.heartbeatUtc
+  };
+}
+
+function healthAddFinding(findings, severity, code, message) {
+  findings.push({ severity, code, message });
+}
+
+function deriveVmHealth(result) {
+  if (!result || result.status === "Failed") {
+    return {
+      overall: "Critical",
+      findings: [
+        {
+          severity: "Critical",
+          code: "DIAGNOSTIC_FAILED",
+          message: result?.message || "The VM health diagnostic failed."
+        }
+      ],
+      powerState: "Unknown",
+      provisioningState: "Unknown",
+      agentStatus: "Unknown",
+      resourceHealth: "Unknown",
+      cpu: { average: null, maximum: null },
+      guest: { availableMemoryMb: null, availableMemoryPercent: null, lowestDiskFreePercent: null, disks: [], heartbeatUtc: null, dataAvailable: false },
+      patch: { available: false, properties: {}, criticalSecurityCount: 0, totalPending: 0, rebootPending: null, lastAssessmentUtc: null },
+      monitoring: { amaInstalled: false, amaProvisioningState: "Unknown", dcrCount: 0, dcrs: [], vmInsightsDataAvailable: false, heartbeatUtc: null }
+    };
+  }
+
+  const findings = [];
+  const powerState = healthGetInstanceStatus(result, "PowerState/");
+  const provisioningState = healthGetInstanceStatus(result, "ProvisioningState/");
+  const agentStatus = healthGetAgentStatus(result);
+  const resourceHealth =
+    String(result?.resourceHealth?.properties?.availabilityState || "Unknown");
+  const cpu = healthReadCpu(result);
+  const guest = healthReadGuest(result);
+  const patch = healthReadPatch(result);
+  const monitoring = healthReadMonitoring(result, guest);
+  const backupStatus = String(result?.backup?.protectionStatus || "Unknown");
+  const extensions = healthReadExtensions(result);
+
+  if (powerState !== "Unknown" && !/running/i.test(powerState)) {
+    healthAddFinding(
+      findings,
+      "Critical",
+      "VM_NOT_RUNNING",
+      `VM power state is ${powerState}.`
+    );
+  }
+
+  if (provisioningState !== "Unknown" && !/succeeded/i.test(provisioningState)) {
+    healthAddFinding(
+      findings,
+      "Critical",
+      "PROVISIONING_STATE",
+      `VM provisioning state is ${provisioningState}.`
+    );
+  }
+
+  if (/unavailable/i.test(resourceHealth)) {
+    healthAddFinding(findings, "Critical", "RESOURCE_HEALTH", "Azure Resource Health reports the VM as Unavailable.");
+  } else if (/degraded|unknown/i.test(resourceHealth)) {
+    healthAddFinding(findings, "Warning", "RESOURCE_HEALTH", `Azure Resource Health is ${resourceHealth}.`);
+  }
+
+  if (agentStatus !== "Unknown" && !/ready/i.test(agentStatus)) {
+    healthAddFinding(findings, "Warning", "VM_AGENT", `Azure VM Agent status is ${agentStatus}.`);
+  }
+
+  if (cpu.average !== null && cpu.average >= 90) {
+    healthAddFinding(findings, "Critical", "CPU_HIGH", `Average CPU is ${cpu.average.toFixed(1)}%.`);
+  } else if (
+    (cpu.average !== null && cpu.average >= 80) ||
+    (cpu.maximum !== null && cpu.maximum >= 90)
+  ) {
+    healthAddFinding(findings, "Warning", "CPU_HIGH", `CPU reached ${healthFormatPercent(cpu.maximum)} with ${healthFormatPercent(cpu.average)} average.`);
+  }
+
+  if (guest.availableMemoryPercent !== null) {
+    if (guest.availableMemoryPercent < 10) {
+      healthAddFinding(findings, "Critical", "MEMORY_LOW", `Available memory is ${guest.availableMemoryPercent.toFixed(1)}%.`);
+    } else if (guest.availableMemoryPercent < 20) {
+      healthAddFinding(findings, "Warning", "MEMORY_LOW", `Available memory is ${guest.availableMemoryPercent.toFixed(1)}%.`);
+    }
+  }
+
+  for (const disk of guest.disks) {
+    if (disk.freePercent === null) continue;
+    if (disk.freePercent < 10) {
+      healthAddFinding(findings, "Critical", "DISK_SPACE_LOW", `${disk.instance} has only ${disk.freePercent.toFixed(1)}% free space.`);
+    } else if (disk.freePercent < 20) {
+      healthAddFinding(findings, "Warning", "DISK_SPACE_LOW", `${disk.instance} has ${disk.freePercent.toFixed(1)}% free space.`);
+    }
+  }
+
+  const failedExtensions = extensions.filter((extension) => {
+    const state = String(extension?.properties?.provisioningState || "Unknown");
+    return state !== "Unknown" && !/succeeded/i.test(state);
+  });
+
+  if (failedExtensions.length > 0) {
+    healthAddFinding(
+      findings,
+      "Warning",
+      "EXTENSION_HEALTH",
+      `${failedExtensions.length} VM extension(s) are not in Succeeded provisioning state.`
+    );
+  }
+
+  if (backupStatus.toLowerCase() !== "protected") {
+    healthAddFinding(findings, "Warning", "BACKUP_PROTECTION", `Azure Backup protection status is ${backupStatus}.`);
+  }
+
+  if (patch.criticalSecurityCount > 0) {
+    healthAddFinding(
+      findings,
+      "Warning",
+      "PATCHES_PENDING",
+      `${patch.criticalSecurityCount} Critical/Security patch(es) are pending in the latest available assessment.`
+    );
+  }
+
+  if (patch.rebootPending === true) {
+    healthAddFinding(findings, "Warning", "PATCH_REBOOT", "The latest patch assessment indicates a reboot is pending.");
+  }
+
+  if (!monitoring.amaInstalled) {
+    healthAddFinding(findings, "Warning", "AMA_MISSING", "Azure Monitor Agent was not detected in the VM extension list.");
+  }
+
+  if (monitoring.dcrCount < 1) {
+    healthAddFinding(findings, "Warning", "DCR_MISSING", "No Data Collection Rule association was returned for this VM.");
+  }
+
+  if (!monitoring.vmInsightsDataAvailable) {
+    healthAddFinding(
+      findings,
+      "Warning",
+      "GUEST_TELEMETRY_UNKNOWN",
+      "VM Insights guest telemetry was not returned from the configured Log Analytics workspace; memory and logical-disk health remain Unknown."
+    );
+  }
+
+  const failedSources = Object.entries(result?.actionStatus || {})
+    .filter(([, status]) => status !== "Succeeded")
+    .map(([name]) => name);
+
+  if (failedSources.length > 0) {
+    healthAddFinding(
+      findings,
+      "Warning",
+      "DATA_SOURCE_UNAVAILABLE",
+      `${failedSources.length} diagnostic data source(s) were unavailable: ${failedSources.join(", ")}.`
+    );
+  }
+
+  let overall = "Healthy";
+  if (findings.some((finding) => finding.severity === "Critical")) {
+    overall = "Critical";
+  } else if (findings.some((finding) => finding.severity === "Warning")) {
+    overall = "Warning";
+  }
+
+  return {
+    overall,
+    findings,
+    powerState,
+    provisioningState,
+    agentStatus,
+    resourceHealth,
+    cpu,
+    guest,
+    patch,
+    monitoring
+  };
+}
+
+function healthBadgeClass(status) {
+  const value = String(status || "Unknown").toLowerCase();
+  if (value === "healthy") return "health-status-healthy";
+  if (value === "warning") return "health-status-warning";
+  if (value === "critical") return "health-status-critical";
+  if (value === "processing" || value === "submitted") return "health-status-processing";
+  return "health-status-unknown";
+}
+
+function healthStatusBannerClass(status) {
+  if (status === "Completed") return "status-success";
+  if (status === "Failed") return "status-error";
+  return "status-warning";
+}
+
+function healthBuildMiniTable(headers, rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return '<div class="health-empty">No data returned for this section.</div>';
+  }
+
+  return `
+    <div class="table-wrap">
+      <table class="health-mini-table">
+        <thead><tr>${headers.map((header) => `<th>${escapeHtml(header.label)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>${headers.map((header) => `<td>${escapeHtml(header.value(row))}</td>`).join("")}</tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function healthBuildConfiguration(result, view) {
+  const vm = result?.vm || {};
+  const rows = [
+    ["Azure VM name", vm.VMName || "Unknown"],
+    ["OS hostname", vm.ComputerName || vm.Hostname || result?.hostname || "Unknown"],
+    ["Subscription", vm.SubscriptionName || vm.SubscriptionId || "Unknown"],
+    ["Resource group", vm.ResourceGroup || "Unknown"],
+    ["Region", vm.Location || "Unknown"],
+    ["VM size", vm.VMSize || "Unknown"],
+    ["OS type", vm.OSType || "Unknown"],
+    ["Security type", vm.SecurityType || "Standard / not reported"],
+    ["Managed identity", vm.IdentityType || "None / not reported"],
+    ["Boot diagnostics", vm.BootDiagnosticsEnabled === true ? "Enabled" : vm.BootDiagnosticsEnabled === false ? "Disabled" : "Unknown"],
+    ["Power state", view.powerState],
+    ["Provisioning state", view.provisioningState],
+    ["VM Agent", view.agentStatus]
+  ];
+
+  return `
+    <div class="table-wrap">
+      <table class="health-mini-table">
+        <tbody>${rows.map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function healthBuildVmCard(result) {
+  const view = deriveVmHealth(result);
+  const vm = result?.vm || {};
+  const guest = view.guest;
+  const patch = view.patch;
+  const monitoring = view.monitoring;
+  const backup = result?.backup || {};
+  const disks = Array.isArray(result?.managedDisks?.data) ? result.managedDisks.data : [];
+  const nics = Array.isArray(result?.network?.data) ? result.network.data : [];
+  const extensions = healthReadExtensions(result);
+
+  const lowestDisk = guest.lowestDiskFreePercent;
+  const patchDisplay = patch.available
+    ? `${patch.totalPending} pending`
+    : "Unknown";
+  const monitorDisplay =
+    monitoring.amaInstalled && monitoring.dcrCount > 0 && monitoring.vmInsightsDataAvailable
+      ? "Reporting"
+      : monitoring.vmInsightsDataAvailable
+        ? "Partial"
+        : "Unknown";
+
+  const findingsHtml = view.findings.length > 0
+    ? `<ul>${view.findings.map((finding) => `<li class="health-finding-${escapeHtml(finding.severity.toLowerCase())}"><strong>${escapeHtml(finding.severity)}:</strong> ${escapeHtml(finding.message)}</li>`).join("")}</ul>`
+    : "<div class=\"health-empty\">No warning or critical findings were identified by the configured V1 rules.</div>";
+
+  const guestDiskTable = healthBuildMiniTable(
+    [
+      { label: "Drive / mount", value: (row) => row.instance },
+      { label: "Free %", value: (row) => row.freePercent === null ? "Unknown" : `${row.freePercent.toFixed(1)}%` },
+      { label: "Free MB", value: (row) => row.freeMb === null ? "Unknown" : row.freeMb.toFixed(0) },
+      { label: "Last sample", value: (row) => row.timeGenerated || "Unknown" }
+    ],
+    guest.disks
+  );
+
+  const managedDiskTable = healthBuildMiniTable(
+    [
+      { label: "Disk", value: (row) => row.Name || "Unknown" },
+      { label: "Size GB", value: (row) => row.SizeGB ?? "Unknown" },
+      { label: "SKU", value: (row) => row.Sku || "Unknown" },
+      { label: "State", value: (row) => row.DiskState || "Unknown" },
+      { label: "Encryption", value: (row) => row.EncryptionType || "Platform managed / not reported" }
+    ],
+    disks
+  );
+
+  const networkTable = healthBuildMiniTable(
+    [
+      { label: "NIC", value: (row) => row.Name || "Unknown" },
+      { label: "Private IP", value: (row) => row.PrivateIp || "Unknown" },
+      { label: "VNet", value: (row) => healthResourceSegment(row.SubnetId, "virtualNetworks") },
+      { label: "Subnet", value: (row) => healthBasename(row.SubnetId) },
+      { label: "NSG", value: (row) => healthBasename(row.NSGId) },
+      { label: "Accelerated", value: (row) => row.AcceleratedNetworking === true ? "Enabled" : row.AcceleratedNetworking === false ? "Disabled" : "Unknown" },
+      { label: "IP forwarding", value: (row) => row.IPForwarding === true ? "Enabled" : row.IPForwarding === false ? "Disabled" : "Unknown" }
+    ],
+    nics
+  );
+
+  const extensionTable = healthBuildMiniTable(
+    [
+      { label: "Extension", value: (row) => row.name || "Unknown" },
+      { label: "Publisher", value: (row) => row.properties?.publisher || "Unknown" },
+      { label: "Type", value: (row) => row.properties?.type || "Unknown" },
+      { label: "Version", value: (row) => row.properties?.typeHandlerVersion || "Unknown" },
+      { label: "Provisioning", value: (row) => row.properties?.provisioningState || "Unknown" }
+    ],
+    extensions
+  );
+
+  const dcrTable = healthBuildMiniTable(
+    [
+      { label: "Association", value: (row) => row.name || "Unknown" },
+      { label: "DCR", value: (row) => healthBasename(row.properties?.dataCollectionRuleId) },
+      { label: "DCR Resource ID", value: (row) => row.properties?.dataCollectionRuleId || "Unknown" }
+    ],
+    monitoring.dcrs
+  );
+
+  const patchCounts = patch.properties?.availablePatchCountByClassification || {};
+  const patchRows = Object.entries(patchCounts).map(([classification, count]) => ({ classification, count }));
+  const patchTable = healthBuildMiniTable(
+    [
+      { label: "Classification", value: (row) => row.classification },
+      { label: "Pending", value: (row) => row.count }
+    ],
+    patchRows
+  );
+
+  return `
+    <article class="health-vm-card">
+      <div class="health-vm-header">
+        <div>
+          <h3>${escapeHtml(result?.hostname || vm.VMName || "VM")}</h3>
+          <div class="health-vm-subtitle">${escapeHtml(vm.SubscriptionName || "Unknown subscription")} • ${escapeHtml(vm.ResourceGroup || "Unknown resource group")} • ${escapeHtml(vm.Location || "Unknown region")}</div>
+        </div>
+        <span class="health-status-pill ${healthBadgeClass(view.overall)}">${escapeHtml(view.overall)}</span>
+      </div>
+
+      <div class="health-chip-grid">
+        <div class="health-chip"><span class="health-chip-label">Power</span><span class="health-chip-value">${escapeHtml(view.powerState)}</span></div>
+        <div class="health-chip"><span class="health-chip-label">Resource Health</span><span class="health-chip-value">${escapeHtml(view.resourceHealth)}</span></div>
+        <div class="health-chip"><span class="health-chip-label">CPU avg / max</span><span class="health-chip-value">${escapeHtml(healthFormatPercent(view.cpu.average))} / ${escapeHtml(healthFormatPercent(view.cpu.maximum))}</span></div>
+        <div class="health-chip"><span class="health-chip-label">Memory available</span><span class="health-chip-value">${escapeHtml(healthFormatPercent(guest.availableMemoryPercent))}</span></div>
+        <div class="health-chip"><span class="health-chip-label">Lowest disk free</span><span class="health-chip-value">${escapeHtml(healthFormatPercent(lowestDisk))}</span></div>
+        <div class="health-chip"><span class="health-chip-label">Azure Backup</span><span class="health-chip-value">${escapeHtml(backup.protectionStatus || "Unknown")}</span></div>
+        <div class="health-chip"><span class="health-chip-label">Patch assessment</span><span class="health-chip-value">${escapeHtml(patchDisplay)}</span></div>
+        <div class="health-chip"><span class="health-chip-label">Monitoring</span><span class="health-chip-value">${escapeHtml(monitorDisplay)}</span></div>
+      </div>
+
+      <div class="health-findings"><h4>Findings</h4>${findingsHtml}</div>
+
+      ${!guest.dataAvailable ? '<div class="health-note">Guest memory and logical-disk values are Unknown because VM Insights / InsightsMetrics data was not returned from the configured Log Analytics workspace.</div>' : ""}
+
+      <div class="health-details">
+        <details><summary>VM configuration &amp; runtime</summary><div class="health-details-body">${healthBuildConfiguration(result, view)}</div></details>
+        <details><summary>Storage</summary><div class="health-details-body"><h4>Azure managed disks</h4>${managedDiskTable}<h4>Guest logical disks</h4>${guestDiskTable}</div></details>
+        <details><summary>Network</summary><div class="health-details-body">${networkTable}</div></details>
+        <details><summary>VM extensions</summary><div class="health-details-body">${extensionTable}</div></details>
+        <details><summary>Monitoring / DCR / Log Analytics</summary><div class="health-details-body"><p class="field-help">AMA: <strong>${escapeHtml(monitoring.amaInstalled ? monitoring.amaProvisioningState : "Not detected")}</strong> • VM Insights data: <strong>${escapeHtml(monitoring.vmInsightsDataAvailable ? "Available" : "Unknown")}</strong> • Last heartbeat: <strong>${escapeHtml(monitoring.heartbeatUtc || "Unknown")}</strong></p>${dcrTable}</div></details>
+        <details><summary>Backup &amp; patching</summary><div class="health-details-body"><p class="field-help">Backup protection: <strong>${escapeHtml(backup.protectionStatus || "Unknown")}</strong> • Vault: <strong>${escapeHtml(healthBasename(backup.vaultId))}</strong> • Policy: <strong>${escapeHtml(backup.policyName || "Unknown")}</strong></p><p class="field-help">Patch assessment: <strong>${escapeHtml(patch.lastAssessmentUtc || "No recent assessment returned")}</strong> • Reboot pending: <strong>${escapeHtml(patch.rebootPending === null ? "Unknown" : String(patch.rebootPending))}</strong></p>${patchTable}</div></details>
+      </div>
+    </article>
+  `;
+}
+
+function renderHealthStatus(result) {
+  healthResultArea.hidden = false;
+
+  const requestStatus = String(result?.status || "Unknown");
+  const terminal = ["Completed", "PartiallyCompleted", "Failed"].includes(requestStatus);
+
+  if (!terminal) {
+    healthResultArea.innerHTML = `
+      <div class="status-banner status-warning">
+        <h2>VM health diagnostic ${escapeHtml(requestStatus.toLowerCase())}</h2>
+        <p>${escapeHtml(result?.message || "The read-only diagnostic is still running.")}</p>
+        <div class="health-request-meta"><span><strong>Request ID:</strong> ${escapeHtml(result?.requestId || currentHealthRequestId || "")}</span><span><strong>VMs:</strong> ${escapeHtml(result?.submittedCount ?? "")}</span><span><strong>Period:</strong> ${escapeHtml(result?.periodMinutes ?? "")} minutes</span></div>
+      </div>
+    `;
+    return;
+  }
+
+  const results = Array.isArray(result?.results) ? result.results : [];
+  const views = results.map((item) => deriveVmHealth(item));
+  const collectionFailedCount = results.filter(
+    (item) => String(item?.status || "") === "Failed"
+  ).length;
+  const healthyCount = views.filter(
+    (view, index) => results[index]?.status !== "Failed" && view.overall === "Healthy"
+  ).length;
+  const warningCount = views.filter(
+    (view, index) => results[index]?.status !== "Failed" && view.overall === "Warning"
+  ).length;
+  const criticalCount = views.filter(
+    (view, index) => results[index]?.status !== "Failed" && view.overall === "Critical"
+  ).length;
+
+  healthResultArea.innerHTML = `
+    <div class="status-banner ${healthStatusBannerClass(requestStatus)}">
+      <h2>VM health diagnostic ${escapeHtml(requestStatus)}</h2>
+      <p>${escapeHtml(result?.message || "The diagnostic completed.")}</p>
+      <div class="health-request-meta"><span><strong>Request ID:</strong> ${escapeHtml(result?.requestId || "")}</span><span><strong>Submitted:</strong> ${escapeHtml(result?.submittedCount ?? results.length)}</span><span><strong>Period:</strong> ${escapeHtml(result?.periodMinutes ?? "")} minutes</span></div>
+    </div>
+
+    <div class="health-overview-grid">
+      <div class="health-overview-item"><span>Healthy</span><strong>${healthyCount}</strong></div>
+      <div class="health-overview-item"><span>Warning</span><strong>${warningCount}</strong></div>
+      <div class="health-overview-item"><span>Critical</span><strong>${criticalCount}</strong></div>
+      <div class="health-overview-item"><span>Collection failed</span><strong>${collectionFailedCount}</strong></div>
+    </div>
+
+    ${results.length > 0
+      ? results.map((item) => healthBuildVmCard(item)).join("")
+      : '<div class="health-empty">No VM result records were returned.</div>'}
+  `;
+}
+
+function stopHealthStatusPolling(clearStoredRequest = false) {
+  if (healthStatusPollTimer) {
+    clearTimeout(healthStatusPollTimer);
+    healthStatusPollTimer = null;
+  }
+
+  healthStatusPollCount = 0;
+
+  if (clearStoredRequest) {
+    currentHealthRequestId = null;
+    try {
+      sessionStorage.removeItem("activeHealthRequestId");
+    } catch {
+      // Continue when browser storage is unavailable.
+    }
+  }
+}
+
+async function pollHealthStatus(requestId) {
+  try {
+    const response = await fetch(
+      `/api/getHealthDiagnosticStatus?requestId=${encodeURIComponent(requestId)}`,
+      { headers: { Accept: "application/json" }, cache: "no-store" }
+    );
+
+    const text = await response.text();
+    let result;
+
+    try {
+      result = text ? JSON.parse(text) : {};
+    } catch {
+      result = { success: false, status: "Failed", message: text || "The API returned an invalid response." };
+    }
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html%23health"
+      );
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(result?.message || `Status check failed with HTTP ${response.status}.`);
+    }
+
+    renderHealthStatus(result);
+
+    if (["Completed", "PartiallyCompleted", "Failed"].includes(result.status)) {
+      stopHealthStatusPolling(true);
+      healthSubmitButton.disabled = false;
+      healthSubmitButton.textContent = "Run VM health diagnostic";
+      return;
+    }
+  } catch (error) {
+    healthValidationMessage.textContent =
+      `Health status refresh failed: ${error.message}`;
+  }
+
+  healthStatusPollCount += 1;
+
+  if (healthStatusPollCount >= HEALTH_STATUS_MAX_POLLS) {
+    stopHealthStatusPolling(false);
+    healthValidationMessage.textContent =
+      "Automatic health status refresh stopped after 10 minutes. Keep the Request ID and refresh the page to resume polling.";
+    healthSubmitButton.disabled = false;
+    healthSubmitButton.textContent = "Run VM health diagnostic";
+    return;
+  }
+
+  healthStatusPollTimer = window.setTimeout(
+    () => pollHealthStatus(requestId),
+    HEALTH_STATUS_POLL_INTERVAL_MS
+  );
+}
+
+function startHealthStatusPolling(requestId) {
+  stopHealthStatusPolling(false);
+  currentHealthRequestId = requestId;
+
+  try {
+    sessionStorage.setItem("activeHealthRequestId", requestId);
+  } catch {
+    // Continue when browser storage is unavailable.
+  }
+
+  healthStatusPollCount = 0;
+  pollHealthStatus(requestId);
+}
+
+healthTabButton.addEventListener("click", () => {
+  activateOperationTab("health");
+});
+
+healthHostnamesInput.addEventListener(
+  "input",
+  updateHealthHostnameCount
+);
+
+healthClearButton.addEventListener("click", () => {
+  stopHealthStatusPolling(true);
+  healthForm.reset();
+  healthValidationMessage.textContent = "";
+  healthResultArea.hidden = true;
+  healthResultArea.innerHTML = "";
+  updateHealthHostnameCount();
+
+  if (authenticatedPrincipal) {
+    healthSubmitButton.disabled = false;
+    healthSubmitButton.textContent = "Run VM health diagnostic";
+  }
+});
+
+healthForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  healthValidationMessage.textContent = "";
+
+  const payload = {
+    hostnames: parseHostnames(healthHostnamesInput.value),
+    periodMinutes: Number(healthPeriodMinutes.value)
+  };
+
+  const validationError = validateHealthForm(payload);
+
+  if (validationError) {
+    healthValidationMessage.textContent = validationError;
+    return;
+  }
+
+  stopHealthStatusPolling(true);
+  healthSubmitButton.disabled = true;
+  healthSubmitButton.textContent = "Starting diagnostic…";
+  healthResultArea.hidden = false;
+  healthResultArea.innerHTML = `
+    <div class="status-banner status-warning">
+      <strong>Starting VM Health Diagnostic</strong>
+      <span>Azure read-only checks are being submitted for ${escapeHtml(payload.hostnames.length)} VM(s).</span>
+    </div>
+  `;
+
+  try {
+    const response = await fetch("/api/submitHealthDiagnostic", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await response.text();
+    let result;
+
+    try {
+      result = text ? JSON.parse(text) : {};
+    } catch {
+      result = {
+        success: false,
+        status: "Failed",
+        message: text || "The API returned an invalid response."
+      };
+    }
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html%23health"
+      );
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        result?.message ||
+        `Health diagnostic submission failed with HTTP ${response.status}.`
+      );
+    }
+
+    renderHealthStatus(result);
+    startHealthStatusPolling(result.requestId);
+  } catch (error) {
+    healthResultArea.hidden = false;
+    healthResultArea.innerHTML = `
+      <div class="status-banner status-error">
+        <strong>VM Health Diagnostic could not be started</strong>
+        <span>${escapeHtml(error.message)}</span>
+      </div>
+    `;
+    healthSubmitButton.disabled = false;
+    healthSubmitButton.textContent = "Run VM health diagnostic";
+  }
+});
+
 suppressionTabButton.addEventListener("click", () => {
   activateOperationTab("suppression");
 });
@@ -3255,12 +4171,17 @@ loadAuthenticatedUser()
     backupSubmitButton.disabled = true;
     backupSubmitButton.textContent =
       "Authentication required";
+
+    healthSubmitButton.disabled = true;
+    healthSubmitButton.textContent =
+      "Authentication required";
   });
 
 updateHostnameCount();
 updateSnapshotHostnameCount();
 updateSnapshotExpiryPreview();
 updateBackupHostnameCount();
+updateHealthHostnameCount();
 
 try {
   const storedSnapshotRequestId =
@@ -3292,12 +4213,29 @@ try {
   // Continue without browser local storage.
 }
 
+try {
+  const storedHealthRequestId =
+    sessionStorage.getItem(
+      "activeHealthRequestId"
+    );
+
+  if (storedHealthRequestId) {
+    startHealthStatusPolling(
+      storedHealthRequestId
+    );
+  }
+} catch {
+  // Continue without browser session storage.
+}
+
 const initialOperationTab =
   window.location.hash === "#snapshot"
     ? "snapshot"
     : window.location.hash === "#backup"
       ? "backup"
-      : "suppression";
+      : window.location.hash === "#health"
+        ? "health"
+        : "suppression";
 
 activateOperationTab(
   initialOperationTab
