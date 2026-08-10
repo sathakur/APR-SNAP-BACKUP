@@ -46,6 +46,12 @@ const snapshotRetentionDays =
   document.getElementById("snapshotRetentionDays");
 const snapshotExpiryDate =
   document.getElementById("snapshotExpiryDate");
+const snapshotHistoryRefreshButton =
+  document.getElementById("snapshotHistoryRefreshButton");
+const snapshotHistoryMessage =
+  document.getElementById("snapshotHistoryMessage");
+const snapshotHistoryTableArea =
+  document.getElementById("snapshotHistoryTableArea");
 
 const backupTabButton =
   document.getElementById("backupTabButton");
@@ -1002,6 +1008,11 @@ async function pollSnapshotStatus(requestId) {
 
       if (snapshotStatusIsTerminal(result.status)) {
         stopSnapshotStatusPolling(true);
+
+        loadMySnapshotRequests(
+          false
+        );
+
         return;
       }
     } else if (response.status !== 404) {
@@ -1088,6 +1099,14 @@ function showSnapshotResult(result, httpStatus) {
   });
 
   startSnapshotStatusPolling(result.requestId);
+
+  window.setTimeout(
+    () =>
+      loadMySnapshotRequests(
+        false
+      ),
+    750
+  );
 }
 
 
@@ -1114,6 +1133,348 @@ function formatBackupDateTime(value) {
     }
   ).format(date);
 }
+
+function getSnapshotHistoryBadgeClass(
+  status
+) {
+  if (status === "Completed") {
+    return "badge-success";
+  }
+
+  if (
+    status ===
+      "PartiallyCompleted" ||
+    status ===
+      "CompletedWithWarnings" ||
+    status ===
+      "Submitted" ||
+    status ===
+      "Processing" ||
+    status ===
+      "Accepted"
+  ) {
+    return "badge-warning";
+  }
+
+  return "badge-error";
+}
+
+function renderMySnapshotRequests(
+  requests
+) {
+  if (
+    !Array.isArray(requests) ||
+    requests.length === 0
+  ) {
+    snapshotHistoryTableArea.innerHTML = `
+      <div class="backup-history-empty">
+        No server-side VM Snapshot request history is available yet.
+        New snapshot requests submitted after this update will appear here automatically.
+      </div>`;
+
+    return;
+  }
+
+  const rows =
+    requests.map((item) => {
+      const hostnames =
+        Array.isArray(
+          item.hostnames
+        )
+          ? item.hostnames
+              .filter(Boolean)
+          : [];
+
+      const status =
+        item.status ||
+        "Unknown";
+
+      const scopeLabel =
+        item.snapshotScopeLabel ||
+        (item.snapshotScope === "AllDisks"
+          ? "OS + data disks"
+          : item.snapshotScope === "OSOnly"
+            ? "OS disk only"
+            : "Not available");
+
+      const retentionText =
+        Number.isFinite(
+          Number(item.retentionDays)
+        ) &&
+        Number(item.retentionDays) > 0
+          ? `${Number(item.retentionDays)} day${Number(item.retentionDays) === 1 ? "" : "s"}`
+          : "Not available";
+
+      const completionText =
+        item.completedUtc
+          ? formatBackupDateTime(
+              item.completedUtc
+            )
+          : "-";
+
+      const snapshotCount =
+        item.snapshotCount ??
+        item.successCount ??
+        0;
+
+      const failureCount =
+        item.failureCount ??
+        0;
+
+      return `
+        <tr>
+          <td>
+            <code>${escapeHtml(
+              item.requestId || ""
+            )}</code>
+          </td>
+          <td class="backup-history-vms">
+            ${escapeHtml(
+              hostnames.length
+                ? hostnames.join(", ")
+                : "Not available"
+            )}
+          </td>
+          <td>${escapeHtml(
+            scopeLabel
+          )}</td>
+          <td>${escapeHtml(
+            retentionText
+          )}</td>
+          <td>${escapeHtml(
+            item.changeNumber ||
+            "Not available"
+          )}</td>
+          <td>${escapeHtml(
+            formatBackupDateTime(
+              item.submittedUtc
+            )
+          )}</td>
+          <td>
+            <span class="badge ${getSnapshotHistoryBadgeClass(
+              status
+            )}">
+              ${escapeHtml(
+                status
+              )}
+            </span>
+          </td>
+          <td>${escapeHtml(
+            snapshotCount
+          )}</td>
+          <td>${escapeHtml(
+            failureCount
+          )}</td>
+          <td>${escapeHtml(
+            completionText
+          )}</td>
+          <td class="backup-history-actions">
+            <button
+              type="button"
+              class="secondary snapshot-history-view-button"
+              data-request-id="${escapeHtml(
+                item.requestId || ""
+              )}">
+              ${
+                snapshotStatusIsTerminal(
+                  status
+                )
+                  ? "View"
+                  : "View / Resume"
+              }
+            </button>
+          </td>
+        </tr>`;
+    }).join("");
+
+  snapshotHistoryTableArea.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Request ID</th>
+            <th>VMs</th>
+            <th>Scope</th>
+            <th>Retention</th>
+            <th>Change / Incident</th>
+            <th>Submitted</th>
+            <th>Status</th>
+            <th>Snapshots</th>
+            <th>Failures</th>
+            <th>Completed</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  snapshotHistoryTableArea
+    .querySelectorAll(
+      ".snapshot-history-view-button"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          const requestId =
+            button.dataset
+              .requestId;
+
+          if (requestId) {
+            openSnapshotRequestFromHistory(
+              requestId
+            );
+          }
+        }
+      );
+    });
+}
+
+async function loadMySnapshotRequests(
+  showLoading = true
+) {
+  if (!authenticatedPrincipal) {
+    return;
+  }
+
+  if (showLoading) {
+    snapshotHistoryMessage.textContent =
+      "Loading your recent VM Snapshot requests…";
+  }
+
+  snapshotHistoryRefreshButton.disabled =
+    true;
+
+  try {
+    const response =
+      await fetch(
+        "/api/getMySnapshotRequests?limit=5",
+        {
+          method: "GET",
+          headers: {
+            Accept:
+              "application/json"
+          },
+          cache: "no-store"
+        }
+      );
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
+      );
+      return;
+    }
+
+    const result =
+      await response.json();
+
+    if (!response.ok) {
+      snapshotHistoryMessage.innerHTML = `
+        <span class="backup-history-error">
+          ${escapeHtml(
+            result.message ||
+            "My Snapshot Requests could not be loaded."
+          )}
+        </span>`;
+
+      return;
+    }
+
+    snapshotHistoryMessage.textContent =
+      `Showing ${result.count ?? 0} recent request${result.count === 1 ? "" : "s"}.`;
+
+    renderMySnapshotRequests(
+      result.requests
+    );
+  } catch (error) {
+    snapshotHistoryMessage.innerHTML = `
+      <span class="backup-history-error">
+        ${escapeHtml(
+          `My Snapshot Requests could not be loaded: ${error.message}`
+        )}
+      </span>`;
+  } finally {
+    snapshotHistoryRefreshButton.disabled =
+      false;
+  }
+}
+
+async function openSnapshotRequestFromHistory(
+  requestId
+) {
+  snapshotHistoryMessage.textContent =
+    "Loading selected VM Snapshot request…";
+
+  try {
+    const response =
+      await fetch(
+        `/api/getSnapshotStatus?requestId=${encodeURIComponent(
+          requestId
+        )}`,
+        {
+          method: "GET",
+          headers: {
+            Accept:
+              "application/json"
+          },
+          cache: "no-store"
+        }
+      );
+
+    if (response.status === 401) {
+      window.location.assign(
+        "/.auth/login/aad?post_login_redirect_uri=/portal.html"
+      );
+      return;
+    }
+
+    const result =
+      await response.json();
+
+    if (!response.ok) {
+      snapshotHistoryMessage.innerHTML = `
+        <span class="backup-history-error">
+          ${escapeHtml(
+            result.message ||
+            "The selected snapshot request could not be loaded."
+          )}
+        </span>`;
+      return;
+    }
+
+    renderSnapshotStatus(
+      result
+    );
+
+    snapshotResultArea.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+
+    if (
+      !snapshotStatusIsTerminal(
+        result.status
+      )
+    ) {
+      startSnapshotStatusPolling(
+        requestId
+      );
+    }
+
+    snapshotHistoryMessage.textContent =
+      "Selected request loaded.";
+  } catch (error) {
+    snapshotHistoryMessage.innerHTML = `
+      <span class="backup-history-error">
+        ${escapeHtml(
+          `The selected snapshot request could not be loaded: ${error.message}`
+        )}
+      </span>`;
+  }
+}
+
 
 function updateBackupHostnameCount() {
   const count =
@@ -2651,6 +3012,15 @@ backupForm.addEventListener("submit", async (event) => {
 });
 
 
+snapshotHistoryRefreshButton.addEventListener(
+  "click",
+  () => {
+    loadMySnapshotRequests(
+      true
+    );
+  }
+);
+
 snapshotTabButton.addEventListener("click", () => {
   activateOperationTab("snapshot");
 });
@@ -2848,6 +3218,10 @@ form.addEventListener("submit", async (event) => {
 loadAuthenticatedUser()
   .then(() => {
     startIdleLogoutMonitoring();
+
+    loadMySnapshotRequests(
+      false
+    );
 
     loadMyBackupRequests(
       false

@@ -7,6 +7,9 @@ const {
 const {
   reserveSnapshotRequest
 } = require("../shared/snapshotRequestLimiter");
+const {
+  appendSnapshotRequestHistory
+} = require("../shared/snapshotRequestHistoryStore");
 
 const MAX_HOSTNAMES = 5;
 const ALLOWED_HOSTNAME = /^[A-Za-z0-9._-]{1,253}$/;
@@ -306,6 +309,33 @@ app.http("submitSnapshot", {
       });
     }
 
+    let historyTracked = true;
+
+    try {
+      await appendSnapshotRequestHistory(
+        authenticatedRequesterId,
+        {
+          requestId,
+          submittedUtc: submittedAt.toISOString(),
+          hostnames,
+          changeNumber:
+            String(body.changeNumber)
+              .trim()
+              .toUpperCase(),
+          snapshotScope: body.snapshotScope,
+          snapshotScopeLabel,
+          retentionDays
+        }
+      );
+    } catch (error) {
+      historyTracked = false;
+
+      context.warn(
+        `Unable to add snapshot request ${requestId} to My Snapshot Requests.`,
+        error
+      );
+    }
+
     const logicAppPayload = {
       requestId,
       submittedUtc: submittedAt.toISOString(),
@@ -422,9 +452,11 @@ app.http("submitSnapshot", {
         requestQuota.requestsUsed,
       requestsRemainingInLast24Hours:
         requestQuota.requestsRemaining,
+      historyTracked,
       message:
-        "The snapshot request was accepted. The portal will monitor it " +
-        "until snapshot creation completes or fails."
+        historyTracked
+          ? "The snapshot request was accepted. The portal will monitor it until snapshot creation completes or fails."
+          : "The snapshot request was accepted, but it could not be added to My Snapshot Requests. Keep the Request ID for status tracking."
     });
   }
 });

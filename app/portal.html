@@ -130,6 +130,18 @@
         </aside>
       </div>
       <section id="snapshotResultArea" class="card result-card" hidden aria-live="polite"></section>
+      <section id="snapshotHistoryCard" class="card backup-history-card" aria-labelledby="snapshotHistoryHeading">
+        <div class="backup-history-header">
+          <div>
+            <span class="requirements-label">Server-side request history</span>
+            <h2 id="snapshotHistoryHeading">My Snapshot Requests</h2>
+            <p class="field-help">Only your latest 5 VM Snapshot requests are stored per authenticated Microsoft Entra user. When a 6th request is submitted, the oldest history entry is removed automatically.</p>
+          </div>
+          <button id="snapshotHistoryRefreshButton" type="button" class="secondary">Refresh</button>
+        </div>
+        <div id="snapshotHistoryMessage" class="field-help" aria-live="polite"></div>
+        <div id="snapshotHistoryTableArea" class="backup-history-table-area"></div>
+      </section>
     </section>
 
     <section id="backupPanel" class="operation-panel" role="tabpanel" aria-labelledby="backupTabButton" hidden>
@@ -164,6 +176,6 @@
 
     <footer class="portal-footer"><span>Azure VM Operations Portal</span><span>Enterprise self-service • Secure authenticated access</span></footer>
   </main>
-  <script src="/app.js?v=20260809-backup-snapshot-stable-1"></script>
+  <script src="/app.js?v=20260810-snapshot-history-1"></script>
 </body>
 </html>
