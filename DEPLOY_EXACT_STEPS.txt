@@ -1,0 +1,38 @@
+VM HEALTH DIAGNOSTIC V2 - EXACT DEPLOY PATCH
+
+Root cause confirmed from GitHub main branch:
+- app/portal.html still contains "Version 1" and "VM Health Diagnostic V1".
+- app/app.js still contains the V1 renderer.
+- The Azure Static Web Apps workflow for victorious-flower succeeded, so Azure redeployed those V1 files.
+
+1) Copy these three files over the same paths in your repository:
+   app/portal.html
+   app/app.js
+   app/styles.css
+
+2) Verify locally:
+   Select-String -Path .\app\portal.html -Pattern "VM Health Diagnostic V2","Version 2","vm-health-v2-noscore"
+   Select-String -Path .\app\app.js -Pattern "VM Health Diagnostic V2","Active alerts","Data freshness","Recommendations"
+
+3) Commit/push:
+   git add app/portal.html app/app.js app/styles.css
+   git commit -m "Deploy VM Health Diagnostic V2 frontend"
+   git push origin main
+
+4) Wait for workflow:
+   azure-static-web-apps-victorious-flower-0b4feae03.yml
+   It must finish SUCCESS.
+
+5) Replace the existing VM Health Logic App code view with:
+   VM_Health_Diagnostic_V2_COMPLETE_CODE_VIEW.json
+   Preserve/set the Log Analytics Workspace ID, then Save.
+
+6) Hard refresh portal with Ctrl+F5.
+
+Expected visible proof:
+- Right panel title: VM Health Diagnostic V2
+- Badge: Expanded
+- Version 2 no-remediation note
+- Result cards include Active alerts, Network in/out, Data freshness, Boot diagnostics
+- Detail sections include Performance, Azure alerts & recent changes, Resource Health history, Boot diagnostics, Recommendations
+- Missing guest metrics display Unknown, not 0.0%

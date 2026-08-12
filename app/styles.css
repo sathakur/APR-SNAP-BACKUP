@@ -107,3 +107,21 @@
 .health-note{margin:0 18px 16px;padding:10px 12px;border-left:3px solid #7a9bb8;background:#f5f8fb;color:#42576b;font-size:11.5px}
 @media(max-width:1050px){.operation-tabs{grid-template-columns:repeat(2,1fr)}.health-overview-grid,.health-chip-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.operation-tabs{grid-template-columns:1fr}.health-overview-grid,.health-chip-grid{grid-template-columns:1fr}.health-vm-header{align-items:flex-start;flex-direction:column}}
+
+/* VM Health Diagnostic V2 */
+.health-action-bar{display:flex;flex-wrap:wrap;gap:8px;padding:0 18px 16px}
+.health-action-bar .secondary{font-size:11px;padding:7px 10px}
+.health-section-heading{margin:14px 0 8px;color:#263f56;font-size:12px}
+.health-kpi-note{display:block;margin-top:3px;color:#728598;font-size:9.5px;font-weight:500}
+.health-recommendations{margin:0;padding-left:20px;color:#40566b;font-size:11.5px;line-height:1.6}
+.health-recommendations li+li{margin-top:5px}
+.health-data-fresh{color:#176b3a}
+.health-data-partial{color:#805900}
+.health-data-stale{color:#9d1c1c}
+.health-metric-grid{display:grid;grid-template-columns:repeat(3,minmax(140px,1fr));gap:9px;margin:10px 0 14px}
+.health-metric-box{border:1px solid #e1e8ee;border-radius:8px;padding:9px 10px;background:#fbfcfe}
+.health-metric-box span{display:block;color:#677b8d;font-size:9.5px;text-transform:uppercase;font-weight:800;letter-spacing:.04em}
+.health-metric-box strong{display:block;margin-top:3px;color:#203a51;font-size:12px}
+.health-inline-note{margin:8px 0 0;color:#63778a;font-size:10.5px}
+.health-mini-table td,.health-mini-table th{vertical-align:top}
+@media(max-width:760px){.health-metric-grid{grid-template-columns:1fr}.health-action-bar{padding-left:14px;padding-right:14px}}

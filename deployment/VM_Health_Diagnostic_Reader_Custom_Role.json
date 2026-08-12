@@ -1,7 +1,7 @@
 {
   "properties": {
     "roleName": "VM Health Diagnostic Reader",
-    "description": "Read-only runtime permissions for the VM Health Diagnostic Logic App. Allows Azure VM discovery, runtime/agent/extension state, metrics, Resource Health, managed-disk and NIC reads, DCR association reads, latest patch-assessment reads, and Azure Backup protection-status lookup. It does not modify VMs, disks, networking, monitoring, patches, or backup configuration.",
+    "description": "Read-only runtime permissions for VM Health Diagnostic V2. Includes VM/runtime/extension reads, Azure Monitor metrics and Activity Log, active alerts, Resource Health current/history, managed disks, NICs, effective routes/NSGs, DCRs, Update Manager assessment, and Azure Backup protected-item/status reads. No VM, disk, network, patch, backup, or monitoring configuration is modified.",
     "assignableScopes": [
       "/subscriptions/<TARGET-SUBSCRIPTION-ID>"
     ],
@@ -26,7 +26,12 @@
           "Microsoft.ResourceHealth/AvailabilityStatuses/Read",
           "Microsoft.ResourceHealth/AvailabilityStatuses/current/read",
           "Microsoft.RecoveryServices/Locations/backupStatus/action",
-          "Microsoft.RecoveryServices/Vaults/read"
+          "Microsoft.RecoveryServices/Vaults/read",
+          "Microsoft.AlertsManagement/alerts/read",
+          "Microsoft.Insights/eventtypes/values/read",
+          "Microsoft.Network/networkInterfaces/effectiveRouteTable/action",
+          "Microsoft.Network/networkInterfaces/effectiveNetworkSecurityGroups/action",
+          "Microsoft.RecoveryServices/vaults/backupFabrics/protectionContainers/protectedItems/read"
         ],
         "notActions": [
           "Microsoft.Compute/virtualMachines/write",

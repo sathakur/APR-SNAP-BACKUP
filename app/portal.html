@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure VM Operations Portal</title>
-  <link rel="stylesheet" href="/styles.css?v=20260812-vm-health-v1-single-vm-final">
+  <link rel="stylesheet" href="/styles.css?v=20260812-vm-health-v2-noscore">
 </head>
 <body>
   <div class="brand-strip" aria-hidden="true"></div>
@@ -181,7 +181,7 @@
       <div class="workspace-grid">
         <section class="card request-card">
           <div class="card-head"><div><h2>VM Health Diagnostic</h2><p>Run a read-only health assessment across Azure platform, monitoring, storage, network, backup, patching, and guest telemetry.</p></div><span class="request-badge">Read-only diagnostic</span></div>
-          <div class="information-note" role="note"><strong>No remediation:</strong> Version 1 only reads Azure and monitoring data. It does not reboot VMs, restart services, modify disks, change networking, install patches, or alter backup configuration.</div>
+          <div class="information-note" role="note"><strong>No remediation:</strong> Version 2 only reads Azure and monitoring data. It does not reboot VMs, restart services, modify disks, change networking, install patches, or alter backup configuration.</div>
           <form id="healthForm" class="form-body" novalidate>
             <div class="section-label">VM scope</div>
             <div class="field full">
@@ -200,15 +200,15 @@
         </section>
         <aside class="side-stack">
           <section class="card requirements-panel" aria-labelledby="healthRequirementsHeading">
-            <div class="requirements-heading"><div><span class="requirements-label">What is checked</span><h2 id="healthRequirementsHeading">VM Health Diagnostic V1</h2></div><span class="requirements-status">15 checks</span></div>
+            <div class="requirements-heading"><div><span class="requirements-label">What is checked</span><h2 id="healthRequirementsHeading">VM Health Diagnostic V2</h2></div><span class="requirements-status">Expanded</span></div>
             <div class="requirements-grid">
-              <article class="requirement-card"><div class="requirement-number">01</div><div><h3>Azure platform</h3><p>VM discovery, configuration, power/provisioning state, Resource Health, VM Agent and extension health.</p></div></article>
-              <article class="requirement-card"><div class="requirement-number">02</div><div><h3>Performance &amp; storage</h3><p>CPU, available memory, logical-disk free space and attached Azure managed-disk configuration.</p></div></article>
-              <article class="requirement-card"><div class="requirement-number">03</div><div><h3>Network &amp; monitoring</h3><p>NIC, private IP, subnet, NSG, AMA, DCR association and Log Analytics/VM Insights telemetry.</p></div></article>
-              <article class="requirement-card"><div class="requirement-number">04</div><div><h3>Protection &amp; patching</h3><p>Azure Backup protection state, latest Update Manager assessment and consolidated health findings.</p></div></article>
+              <article class="requirement-card"><div class="requirement-number">01</div><div><h3>Azure platform</h3><p>VM discovery, configuration, power/provisioning state, current + historical Resource Health, VM Agent, extensions, active Azure alerts and recent Azure changes.</p></div></article>
+              <article class="requirement-card"><div class="requirement-number">02</div><div><h3>Performance &amp; storage</h3><p>CPU trend, network traffic, disk I/O/latency/utilization, available memory, logical-disk free space, attached Azure managed disks and data freshness.</p></div></article>
+              <article class="requirement-card"><div class="requirement-number">03</div><div><h3>Network &amp; monitoring</h3><p>NIC, private IP, subnet, NSG, effective routes/effective NSGs, AMA, DCR association, heartbeat and Log Analytics/VM Insights telemetry.</p></div></article>
+              <article class="requirement-card"><div class="requirement-number">04</div><div><h3>Protection &amp; patching</h3><p>Detailed Azure Backup state, last backup/recovery point, Update Manager assessment, boot diagnostics state, recommendations and export/copy support.</p></div></article>
             </div>
           </section>
-          <section class="policy-card"><div class="policy-title">🛡 Diagnostic-only access</div><p>Guest memory and logical-disk results require VM Insights / InsightsMetrics in the configured Log Analytics workspace. Missing telemetry is reported as <strong>Unknown</strong>, never as Healthy.</p></section>
+          <section class="policy-card"><div class="policy-title">🛡 Diagnostic-only access</div><p>Guest memory and logical-disk results require VM Insights / InsightsMetrics in the configured Log Analytics workspace. Missing telemetry is reported as <strong>Unknown</strong>, never as 0% or Healthy. Health Score is intentionally not used.</p></section>
         </aside>
       </div>
       <section id="healthResultArea" class="card result-card health-result-card" hidden aria-live="polite"></section>
@@ -216,6 +216,6 @@
 
     <footer class="portal-footer"><span>Azure VM Operations Portal</span><span>Enterprise self-service • Secure authenticated access</span></footer>
   </main>
-  <script src="/app.js?v=20260812-vm-health-v1-single-vm-final"></script>
+  <script src="/app.js?v=20260812-vm-health-v2-noscore"></script>
 </body>
 </html>
