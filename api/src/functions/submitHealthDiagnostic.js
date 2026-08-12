@@ -2,7 +2,7 @@ const { app } = require("@azure/functions");
 const { randomUUID } = require("node:crypto");
 const { writeHealthStatus } = require("../shared/healthStatusStore");
 
-const MAX_HOSTNAMES = 5;
+const MAX_HOSTNAMES = 1;
 const ALLOWED_HOSTNAME = /^[A-Za-z0-9._-]{1,253}$/;
 const ALLOWED_PERIODS = new Set([60, 180, 360, 1440]);
 
@@ -72,7 +72,7 @@ function validatePayload(body) {
   const hostnames = normalizeHostnames(body.hostnames);
 
   if (hostnames.length < 1 || hostnames.length > MAX_HOSTNAMES) {
-    return `Provide between 1 and ${MAX_HOSTNAMES} unique hostnames per health diagnostic request.`;
+    return "Provide exactly 1 unique hostname per health diagnostic request.";
   }
 
   const invalidHostname = hostnames.find(

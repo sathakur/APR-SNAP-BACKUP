@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure VM Operations Portal</title>
-  <link rel="stylesheet" href="/styles.css?v=20260810-vm-health-v1">
+  <link rel="stylesheet" href="/styles.css?v=20260812-vm-health-v1-single-vm-final">
 </head>
 <body>
   <div class="brand-strip" aria-hidden="true"></div>
@@ -185,14 +185,14 @@
           <form id="healthForm" class="form-body" novalidate>
             <div class="section-label">VM scope</div>
             <div class="field full">
-              <label for="healthHostnames">VM hostnames <span class="required">*</span></label>
-              <textarea id="healthHostnames" rows="7" maxlength="5000" placeholder="WINVM001&#10;WINVM002&#10;WINVM003" required></textarea>
-              <div class="help-row"><span>One hostname per line, or separate with commas or semicolons. Maximum 5 unique VMs per diagnostic.</span><span id="healthHostnameCount" class="counter">0 / 5</span></div>
+              <label for="healthHostnames">VM hostname <span class="required">*</span></label>
+              <input id="healthHostnames" type="text" maxlength="253" placeholder="WINVM001" autocomplete="off" required>
+              <div class="help-row"><span>Enter one Azure VM hostname. VM Health Diagnostic runs against one VM per request.</span><span id="healthHostnameCount" class="counter">0 / 1</span></div>
             </div>
             <div class="section-label section-spacer">Diagnostic settings</div>
             <div class="grid">
               <div class="field"><label for="healthPeriodMinutes">Performance period <span class="required">*</span></label><select id="healthPeriodMinutes" required><option value="60" selected>Last 1 hour</option><option value="180">Last 3 hours</option><option value="360">Last 6 hours</option><option value="1440">Last 24 hours</option></select><div class="field-help">CPU and available guest telemetry are evaluated for this period.</div></div>
-              <div class="field"><label>Execution mode</label><input type="text" value="Read-only • Parallel up to 5 VMs" readonly aria-readonly="true"><div class="field-help">No change or incident number is required because this operation makes no VM configuration changes.</div></div>
+              <div class="field"><label>Execution mode</label><input type="text" value="Read-only • Single VM" readonly aria-readonly="true"><div class="field-help">No change or incident number is required because this operation makes no VM configuration changes.</div></div>
             </div>
             <div id="healthValidationMessage" class="validation-message" role="alert"></div>
             <div class="actions"><div class="secure-note">🔒 Requester identity is captured automatically</div><div class="action-buttons"><button id="healthClearButton" type="button" class="secondary">Clear</button><button id="healthSubmitButton" type="submit" disabled>Verifying identity…</button></div></div>
@@ -216,6 +216,6 @@
 
     <footer class="portal-footer"><span>Azure VM Operations Portal</span><span>Enterprise self-service • Secure authenticated access</span></footer>
   </main>
-  <script src="/app.js?v=20260810-vm-health-v1"></script>
+  <script src="/app.js?v=20260812-vm-health-v1-single-vm-final"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 const MAX_HOSTNAMES = 20;
 const SNAPSHOT_MAX_HOSTNAMES = 5;
-const HEALTH_MAX_HOSTNAMES = 5;
+const HEALTH_MAX_HOSTNAMES = 1;
 const FIXED_TIME_ZONE = "W. Europe Standard Time";
 const IANA_TIME_ZONE = "Europe/Amsterdam";
 const MINIMUM_LEAD_MINUTES = 45;
@@ -2906,11 +2906,11 @@ function validateHealthForm(payload) {
   }
 
   if (payload.hostnames.length < 1) {
-    return "Enter at least one VM hostname.";
+    return "Enter a VM hostname.";
   }
 
   if (payload.hostnames.length > HEALTH_MAX_HOSTNAMES) {
-    return `A maximum of ${HEALTH_MAX_HOSTNAMES} unique hostnames is allowed.`;
+    return "VM Health Diagnostic accepts exactly one VM hostname per request.";
   }
 
   const hostnamePattern = /^[A-Z0-9._-]{1,253}$/;
