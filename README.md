@@ -1,59 +1,63 @@
-# Azure VM Operations Portal
+# Azure VM Operations Portal - Single-VM Health Diagnostic Final
 
+This package contains the complete authenticated Azure VM Operations Portal source code.
 
+Portal modules:
 
-
-Combined authenticated portal with four independent operations:
-
-- Alert Suppression
-- VM Snapshot
-- VM Backup
-- VM Health Diagnostic
-
-## VM Backup
-
-VM Backup supports:
-- maximum 5 unique VMs per request
-- maximum 3 backup requests per authenticated user in a rolling 24-hour period
-- only VMs already protected by Azure Backup
-- current Azure Backup protection status
-- vault and policy
-- last backup status
-- last successful backup/recovery point date
-- asynchronous Backup Now tracking
-- Completed / PartiallyCompleted / Failed portal confirmation
-
-The existing APR and Snapshot backends remain separate and unchanged.
-
-
-## VM Backup pre-check
-
-The VM Backup tab now performs a read-only Azure Backup status check before
-Backup Now is enabled. It shows protection, vault, policy, last backup status,
-last successful backup, active job state, and a VM-specific approximate duration.
-
-
-## My Backup Requests
-
-The VM Backup tab now includes server-side per-user request history. The latest
-request IDs are indexed in the existing `backup-status` Blob container under a
-SHA-256 hash of the authenticated Entra user ID. No Blob List permission is required.
-Users can return later, including from another browser/device, and use **View** or
-**View / Resume** to inspect a request.
-
-
-## Ad Hoc VM Backup parallel execution
-
-The VM Backup tab is now named **Ad Hoc VM Backup**. Up to five VMs in one request are processed
-in parallel. Each concurrent VM writes a unique result record under
-`backup-status/parallel-results/<request-id>/<hostname>.json`; results are collected sequentially
-after the parallel loop so shared Logic App variables are not mutated concurrently.
-
+- Alert Suppression - existing behavior unchanged
+- VM Snapshot - existing behavior unchanged; maximum 5 VMs per request
+- On-Demand VM Backup - existing behavior unchanged; maximum 5 VMs per request
+- VM Health Diagnostic V1 - read-only and restricted to exactly 1 VM per request
 
 ## VM Health Diagnostic V1
 
-VM Health Diagnostic adds a read-only troubleshooting view for up to five VMs per request. The dedicated Logic App processes VMs in parallel (maximum concurrency 5) and collects per-VM results safely through temporary Blob result records.
+The Health Diagnostic tab uses a single-line VM hostname field. The single-VM restriction is enforced in all three layers:
 
-V1 includes VM discovery/configuration, power/provisioning state, Azure Resource Health, VM Agent and extensions, CPU metrics, optional VM Insights memory/logical-disk telemetry, managed disks, NIC/VNet/subnet/NSG references, Azure Backup protection, Update Manager assessment data, AMA/DCR/Log Analytics status, and consolidated portal findings.
+1. Browser: `HEALTH_MAX_HOSTNAMES = 1` and the UI accepts a single hostname.
+2. Static Web App API: `submitHealthDiagnostic.js` rejects any request that does not contain exactly one unique hostname.
+3. Logic App: the HTTP trigger schema sets `minItems: 1` and `maxItems: 1`; `maximumHostnames` is 1 and the VM loop concurrency is 1.
 
-Deployment instructions: `VM_HEALTH_DIAGNOSTIC_V1_DEPLOYMENT_STEPS.md`.
+The module remains diagnostic-only. It does not reboot/deallocate VMs, execute guest Run Command, resize disks, modify networking, install patches, or alter Azure Backup configuration.
+
+### Health checks
+
+- VM discovery/configuration
+- Power state
+- Provisioning state
+- Azure Resource Health
+- VM Agent state
+- VM extension health
+- CPU metrics
+- VM Insights available-memory telemetry when present
+- VM Insights logical-disk free-space telemetry when present
+- Azure managed disks
+- NIC/private IP/VNet/subnet/NSG references
+- Azure Backup protection status
+- latest Update Manager assessment available through Resource Graph
+- AMA/DCR/Log Analytics telemetry state
+- consolidated Healthy/Warning/Critical findings
+
+Missing optional guest telemetry is shown as `Unknown`, not Healthy.
+
+## Main files
+
+Portal:
+- `app/portal.html`
+- `app/app.js`
+- `app/styles.css`
+- `app/staticwebapp.config.json`
+
+Health API:
+- `api/src/functions/submitHealthDiagnostic.js`
+- `api/src/functions/getHealthDiagnosticStatus.js`
+- `api/src/shared/healthStatusStore.js`
+
+Health Logic App:
+- `VM_Health_Diagnostic_SINGLE_VM_COMPLETE_CODE_VIEW.json` - easiest file to paste directly in Logic App Code view
+- `deployment/LogicApp_VM_Health_Diagnostic_Single_VM.json` - same workflow kept under deployment
+
+RBAC/deployment:
+- `deployment/VM_Health_Diagnostic_Reader_Custom_Role.json`
+- `deployment/VM_Health_Backup_Status_Only_Custom_Role.json`
+- `VM_HEALTH_DIAGNOSTIC_V1_DEPLOYMENT_STEPS.md`
+- `VM_HEALTH_SINGLE_VM_PORTAL_DEPLOYMENT.md`
