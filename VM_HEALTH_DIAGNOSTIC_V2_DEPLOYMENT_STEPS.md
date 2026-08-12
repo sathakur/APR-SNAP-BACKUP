@@ -81,7 +81,7 @@ Go to **Development Tools → Logic app code view**.
 
 Replace the Health Logic App definition with:
 
-`VM_Health_Diagnostic_V2_USE_THIS_CODE_VIEW.json`
+`VM_Health_Diagnostic_V2_COMPLETE_CODE_VIEW.json`
 
 Before saving, set:
 
